@@ -1,10 +1,14 @@
 """TSAF binary format parser."""
 
+import re
 import struct
 from dataclasses import dataclass
 
 APPLE_MUSIC_ID_PREFIX = b"\x21\x08com.apple.iTunes:"
 STRING_TYPE_TAG = b"\x08"
+
+# Compact ADCCuePoint: 2B 05 10 13 <value bytes> 05 11
+_COMPACT_CUE_TIME_RE = re.compile(rb"\x2b\x05\x10\x13(.+?)\x05\x11", re.DOTALL)
 
 
 class TSAFParseError(Exception):
@@ -21,6 +25,42 @@ class LocalMediaItemLocation:
     title: str
     artist: str
     duration: float
+
+
+@dataclass
+class MediaItemTitleID:
+    """Parsed fields from a mediaItemTitleIDs TSAF blob."""
+
+    title: str
+    artist: str
+    duration: float
+
+
+@dataclass
+class MediaItemAnalyzedData:
+    """Parsed fields from a mediaItemAnalyzedData TSAF blob."""
+
+    title: str
+    artist: str
+    duration: float
+    bpm: float
+    key_signature_index: int
+
+
+@dataclass
+class MediaItemUserData:
+    """Parsed fields from a mediaItemUserData TSAF blob."""
+
+    title: str
+    artist: str
+    duration: float
+    automix_start_point: float | None
+    automix_end_point: float | None
+
+
+# ---------------------------------------------------------------------------
+# Private helpers
+# ---------------------------------------------------------------------------
 
 
 def _extract_string_field(data: bytes, field_name: str) -> str:
@@ -81,6 +121,69 @@ def _extract_float32_field(data: bytes, field_name: str) -> float:
     return value
 
 
+def _extract_uint8_field(data: bytes, field_name: str) -> int:
+    """Extract a uint8 value for the given field name.
+
+    Uses the "take last 1 byte" strategy: the single byte immediately before
+    ``\\x08<field_name>\\x00`` is the value.
+
+    Args:
+        data: Raw TSAF binary data.
+        field_name: Name of the field to extract.
+
+    Returns:
+        Integer value (0–255).
+
+    Raises:
+        TSAFParseError: If the field is not found.
+    """
+    marker = STRING_TYPE_TAG + field_name.encode() + b"\x00"
+    marker_offset = data.find(marker)
+    if marker_offset == -1:
+        raise TSAFParseError(f"Field '{field_name}' not found in data")
+
+    return data[marker_offset - 1]
+
+
+def _extract_cue_point_times(data: bytes) -> tuple[list[float], list[float]]:
+    """Extract ADCCuePoint time values from both verbose and compact entities.
+
+    Args:
+        data: Raw TSAF binary data.
+
+    Returns:
+        A ``(verbose_times, compact_times)`` tuple, each a list of float32
+        seconds values in order of appearance.
+    """
+    # Verbose: value immediately precedes \x08time\x00
+    verbose_times: list[float] = []
+    time_marker = b"\x08time\x00"
+    start = 0
+    while True:
+        offset = data.find(time_marker, start)
+        if offset == -1:
+            break
+        (t,) = struct.unpack("<f", data[offset - 4 : offset])
+        verbose_times.append(t)
+        start = offset + len(time_marker)
+
+    # Compact: 2B 05 10 13 <value bytes> 05 11
+    compact_times: list[float] = []
+    for match in _COMPACT_CUE_TIME_RE.finditer(data):
+        value_bytes = match.group(1)
+        if len(value_bytes) < 4:
+            continue
+        (t,) = struct.unpack("<f", value_bytes[-4:])
+        compact_times.append(t)
+
+    return verbose_times, compact_times
+
+
+# ---------------------------------------------------------------------------
+# Public extraction functions
+# ---------------------------------------------------------------------------
+
+
 def extract_apple_music_id(data: bytes) -> int:
     """Extract the Apple Music ID from a localMediaItemLocations TSAF blob.
 
@@ -111,10 +214,10 @@ def extract_apple_music_id(data: bytes) -> int:
 
 
 def extract_title(data: bytes) -> str:
-    """Extract the track title from a localMediaItemLocations TSAF blob.
+    """Extract the track title.
 
     Args:
-        data: Raw binary content of a localMediaItemLocations TSAF file.
+        data: Raw TSAF binary data.
 
     Returns:
         Track title as a string.
@@ -126,10 +229,10 @@ def extract_title(data: bytes) -> str:
 
 
 def extract_artist(data: bytes) -> str:
-    """Extract the artist name from a localMediaItemLocations TSAF blob.
+    """Extract the artist name.
 
     Args:
-        data: Raw binary content of a localMediaItemLocations TSAF file.
+        data: Raw TSAF binary data.
 
     Returns:
         Artist name as a string.
@@ -141,10 +244,10 @@ def extract_artist(data: bytes) -> str:
 
 
 def extract_duration(data: bytes) -> float:
-    """Extract the track duration (seconds) from a localMediaItemLocations TSAF blob.
+    """Extract the track duration in seconds.
 
     Args:
-        data: Raw binary content of a localMediaItemLocations TSAF file.
+        data: Raw TSAF binary data.
 
     Returns:
         Duration in seconds as a float.
@@ -153,6 +256,41 @@ def extract_duration(data: bytes) -> float:
         TSAFParseError: If the duration field is not found.
     """
     return _extract_float32_field(data, "duration")
+
+
+def extract_bpm(data: bytes) -> float:
+    """Extract the BPM from a mediaItemAnalyzedData TSAF blob.
+
+    Args:
+        data: Raw binary content of a mediaItemAnalyzedData TSAF file.
+
+    Returns:
+        BPM as a float.
+
+    Raises:
+        TSAFParseError: If the bpm field is not found.
+    """
+    return _extract_float32_field(data, "bpm")
+
+
+def extract_key_signature_index(data: bytes) -> int:
+    """Extract the key signature index from a mediaItemAnalyzedData TSAF blob.
+
+    Args:
+        data: Raw binary content of a mediaItemAnalyzedData TSAF file.
+
+    Returns:
+        Key signature index as an integer (0–255).
+
+    Raises:
+        TSAFParseError: If the keySignatureIndex field is not found.
+    """
+    return _extract_uint8_field(data, "keySignatureIndex")
+
+
+# ---------------------------------------------------------------------------
+# Convenience parsers
+# ---------------------------------------------------------------------------
 
 
 def parse_local_media_item_location(data: bytes) -> LocalMediaItemLocation:
@@ -172,4 +310,79 @@ def parse_local_media_item_location(data: bytes) -> LocalMediaItemLocation:
         title=extract_title(data),
         artist=extract_artist(data),
         duration=extract_duration(data),
+    )
+
+
+def parse_media_item_title_id(data: bytes) -> MediaItemTitleID:
+    """Parse all known fields from a mediaItemTitleIDs TSAF blob.
+
+    Args:
+        data: Raw binary content of a mediaItemTitleIDs TSAF file.
+
+    Returns:
+        :class:`MediaItemTitleID` with all extracted fields.
+
+    Raises:
+        TSAFParseError: If any required field is missing or malformed.
+    """
+    return MediaItemTitleID(
+        title=extract_title(data),
+        artist=extract_artist(data),
+        duration=extract_duration(data),
+    )
+
+
+def parse_media_item_analyzed_data(data: bytes) -> MediaItemAnalyzedData:
+    """Parse all known fields from a mediaItemAnalyzedData TSAF blob.
+
+    Args:
+        data: Raw binary content of a mediaItemAnalyzedData TSAF file.
+
+    Returns:
+        :class:`MediaItemAnalyzedData` with all extracted fields.
+
+    Raises:
+        TSAFParseError: If any required field is missing or malformed.
+    """
+    return MediaItemAnalyzedData(
+        title=extract_title(data),
+        artist=extract_artist(data),
+        duration=extract_duration(data),
+        bpm=extract_bpm(data),
+        key_signature_index=extract_key_signature_index(data),
+    )
+
+
+def parse_media_item_user_data(data: bytes) -> MediaItemUserData:
+    """Parse all known fields from a mediaItemUserData TSAF blob.
+
+    Automix cue times are extracted from ``ADCCuePoint`` entities:
+
+    - ``automix_start_point``: time from the first compact ``ADCCuePoint``
+    - ``automix_end_point``: largest time across all ``ADCCuePoint`` entities
+
+    Both are ``None`` when no cue points are present.
+
+    Args:
+        data: Raw binary content of a mediaItemUserData TSAF file.
+
+    Returns:
+        :class:`MediaItemUserData` with all extracted fields.
+
+    Raises:
+        TSAFParseError: If any required field is missing or malformed.
+    """
+    verbose_times, compact_times = _extract_cue_point_times(data)
+
+    automix_start_point: float | None = compact_times[0] if compact_times else None
+
+    all_times = verbose_times + compact_times
+    automix_end_point: float | None = max(all_times) if all_times else None
+
+    return MediaItemUserData(
+        title=extract_title(data),
+        artist=extract_artist(data),
+        duration=extract_duration(data),
+        automix_start_point=automix_start_point,
+        automix_end_point=automix_end_point,
     )
