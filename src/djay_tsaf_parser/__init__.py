@@ -1,0 +1,1 @@
+from djay_tsaf_parser import apple_id_extractor
