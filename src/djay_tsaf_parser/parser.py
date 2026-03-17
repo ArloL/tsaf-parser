@@ -7,8 +7,12 @@ from dataclasses import dataclass
 APPLE_MUSIC_ID_PREFIX = b"\x21\x08com.apple.iTunes:"
 STRING_TYPE_TAG = b"\x08"
 
-# Compact ADCCuePoint: 2B 05 10 13 <value bytes> 05 11
-_COMPACT_CUE_TIME_RE = re.compile(rb"\x2b\x05\x10\x13(.+?)\x05\x11", re.DOTALL)
+# Compact ADCCuePoint time field followed by the next field marker.
+# Field ID varies by schema: 0x10 (first field) or 0x11 (second field).
+_COMPACT_CUE_TIME_RE = re.compile(
+    rb"\x2b\x05\x10\x13(.+?)\x05\x11|\x2b\x05\x11\x13(.+?)\x05\x12",
+    re.DOTALL,
+)
 
 
 class TSAFParseError(Exception):
@@ -167,10 +171,10 @@ def _extract_cue_point_times(data: bytes) -> tuple[list[float], list[float]]:
         verbose_times.append(t)
         start = offset + len(time_marker)
 
-    # Compact: 2B 05 10 13 <value bytes> 05 11
+    # Compact: field ID 0x10 or 0x11, each followed by the next field marker
     compact_times: list[float] = []
     for match in _COMPACT_CUE_TIME_RE.finditer(data):
-        value_bytes = match.group(1)
+        value_bytes = match.group(1) or match.group(2)
         if len(value_bytes) < 4:
             continue
         (t,) = struct.unpack("<f", value_bytes[-4:])
