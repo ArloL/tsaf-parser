@@ -13,9 +13,9 @@ Tests are written in pytest.
 ## Test data
 
 For easier exploration this project contains extracted binary blobs in `/data`.
-There is data for two songs (prefix: guiboratto and happysong) for four
-different columns (suffix: localMediaItemLocations, mediaItemAnalyzedData,
-mediaItemTitleIDs and mediaItemUserData).
+There is data for four songs (prefix: guiboratto, happysong, just and
+luvmaschine) for four different columns (suffix: localMediaItemLocations,
+mediaItemAnalyzedData, mediaItemTitleIDs and mediaItemUserData).
 
 1. guiboratto
   * Artist: Gui Boratto
