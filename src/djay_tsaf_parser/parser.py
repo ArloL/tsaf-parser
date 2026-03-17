@@ -10,11 +10,10 @@ from djay_tsaf_parser.tsaf import (
     CompactEntity,
     VerboseEntity,
     find_all_entities,
-    find_field,
     parse_tsaf,
 )
 
-APPLE_MUSIC_ID_PREFIX = b"\x21\x08com.apple.iTunes:"
+APPLE_MUSIC_ID_PREFIX = "com.apple.iTunes:"
 
 
 class TSAFParseError(Exception):
@@ -72,8 +71,8 @@ class MediaItemUserData:
 def extract_apple_music_id(data: bytes) -> int:
     """Extract the Apple Music ID from a localMediaItemLocations TSAF blob.
 
-    Searches for the ``com.apple.iTunes:`` field (type tag ``21 08``) and
-    returns the decimal integer that follows.
+    Walks the parsed entity tree to find the Apple ID string stored in the
+    anonymous collection field of ``ADCMediaItemLocation``.
 
     Args:
         data: Raw binary content of a localMediaItemLocations TSAF file.
@@ -84,18 +83,18 @@ def extract_apple_music_id(data: bytes) -> int:
     Raises:
         TSAFParseError: If the Apple Music ID field is not found or malformed.
     """
-    offset = data.find(APPLE_MUSIC_ID_PREFIX)
-    if offset == -1:
-        raise TSAFParseError("Apple Music ID field not found in data")
-
-    start = offset + len(APPLE_MUSIC_ID_PREFIX)
-    end = data.index(b"\x00", start)
-    digits = data[start:end].decode("ascii")
-
-    if not digits.isdigit():
-        raise TSAFParseError(f"Expected decimal digits, got: {digits!r}")
-
-    return int(digits)
+    doc = parse_tsaf(data)
+    for entity in find_all_entities(doc.entities, "MediaItemLocation"):
+        for f in entity.fields:
+            if not isinstance(f.value, list):
+                continue
+            for item in f.value:
+                if isinstance(item, str) and item.startswith(APPLE_MUSIC_ID_PREFIX):
+                    digits = item[len(APPLE_MUSIC_ID_PREFIX):]
+                    if not digits.isdigit():
+                        raise TSAFParseError(f"Expected decimal digits, got: {digits!r}")
+                    return int(digits)
+    raise TSAFParseError("Apple Music ID field not found in data")
 
 
 def extract_title(data: bytes) -> str:
@@ -112,12 +111,13 @@ def extract_title(data: bytes) -> str:
     """
     try:
         doc = parse_tsaf(data)
+        title_id = _find_title_id_entity(doc)
     except TSAFParseError:
         raise TSAFParseError("Field 'title' not found in data")
-    value = find_field(doc.entities, "TitleID", "title")
-    if not isinstance(value, str):
-        raise TSAFParseError("Field 'title' not found in data")
-    return value
+    for f in title_id.fields:
+        if f.name == "title" and isinstance(f.value, str):
+            return f.value
+    raise TSAFParseError("Field 'title' not found in data")
 
 
 def extract_artist(data: bytes) -> str:
@@ -134,12 +134,36 @@ def extract_artist(data: bytes) -> str:
     """
     try:
         doc = parse_tsaf(data)
+        title_id = _find_title_id_entity(doc)
     except TSAFParseError:
         raise TSAFParseError("Field 'artist' not found in data")
-    value = find_field(doc.entities, "TitleID", "artist")
-    if not isinstance(value, str):
-        raise TSAFParseError("Field 'artist' not found in data")
-    return value
+    for f in title_id.fields:
+        if f.name == "artist" and isinstance(f.value, str):
+            return f.value
+    raise TSAFParseError("Field 'artist' not found in data")
+
+
+def _find_title_id_entity(doc: "TSAFDocument") -> "VerboseEntity":
+    """Return the ADCMediaItemTitleID entity from a parsed document.
+
+    It is either the top-level entity (mediaItemTitleIDs files) or the first
+    VerboseEntity inside a collection field of the top-level container entity
+    (localMediaItemLocations, mediaItemAnalyzedData, mediaItemUserData).
+
+    Raises:
+        TSAFParseError: If no ADCMediaItemTitleID entity is found.
+    """
+    top = doc.entities[0] if doc.entities else None
+    if isinstance(top, VerboseEntity) and top.type_name == "ADCMediaItemTitleID":
+        return top
+    if isinstance(top, VerboseEntity):
+        for f in top.fields:
+            if not isinstance(f.value, list):
+                continue
+            for item in f.value:
+                if isinstance(item, VerboseEntity) and item.type_name == "ADCMediaItemTitleID":
+                    return item
+    raise TSAFParseError("ADCMediaItemTitleID entity not found in data")
 
 
 def extract_duration(data: bytes) -> float:
@@ -155,10 +179,25 @@ def extract_duration(data: bytes) -> float:
         TSAFParseError: If the duration field is not found.
     """
     doc = parse_tsaf(data)
-    value = find_field(doc.entities, "TitleID", "duration")
-    if not isinstance(value, (int, float)):
-        raise TSAFParseError("Field 'duration' not found in data")
-    return float(value)
+    title_id = _find_title_id_entity(doc)
+    for f in title_id.fields:
+        if f.name == "duration" and isinstance(f.value, (int, float)):
+            return float(f.value)
+    raise TSAFParseError("Field 'duration' not found in data")
+
+
+def _find_analyzed_data_entity(doc: "TSAFDocument") -> "VerboseEntity":
+    """Return the ADCMediaItemAnalyzedData entity from a parsed document.
+
+    It is always the top-level entity in mediaItemAnalyzedData files.
+
+    Raises:
+        TSAFParseError: If no ADCMediaItemAnalyzedData entity is found.
+    """
+    top = doc.entities[0] if doc.entities else None
+    if isinstance(top, VerboseEntity) and top.type_name == "ADCMediaItemAnalyzedData":
+        return top
+    raise TSAFParseError("ADCMediaItemAnalyzedData entity not found in data")
 
 
 def extract_bpm(data: bytes) -> float:
@@ -174,10 +213,11 @@ def extract_bpm(data: bytes) -> float:
         TSAFParseError: If the bpm field is not found.
     """
     doc = parse_tsaf(data)
-    value = find_field(doc.entities, "AnalyzedData", "bpm")
-    if not isinstance(value, (int, float)):
-        raise TSAFParseError("Field 'bpm' not found in data")
-    return float(value)
+    analyzed = _find_analyzed_data_entity(doc)
+    for f in analyzed.fields:
+        if f.name == "bpm" and isinstance(f.value, (int, float)):
+            return float(f.value)
+    raise TSAFParseError("Field 'bpm' not found in data")
 
 
 def extract_key_signature_index(data: bytes) -> int:
@@ -193,10 +233,11 @@ def extract_key_signature_index(data: bytes) -> int:
         TSAFParseError: If the keySignatureIndex field is not found.
     """
     doc = parse_tsaf(data)
-    value = find_field(doc.entities, "AnalyzedData", "keySignatureIndex")
-    if not isinstance(value, int):
-        raise TSAFParseError("Field 'keySignatureIndex' not found in data")
-    return value
+    analyzed = _find_analyzed_data_entity(doc)
+    for f in analyzed.fields:
+        if f.name == "keySignatureIndex" and isinstance(f.value, int):
+            return f.value
+    raise TSAFParseError("Field 'keySignatureIndex' not found in data")
 
 
 # ---------------------------------------------------------------------------
