@@ -46,13 +46,13 @@ mediaItemTitleIDs and mediaItemUserData).
   * Key Index: 11
 4. luvmaschine
   * Artist: Luvless
-  * Title: Luvmaschine (Original Mix)
+  * Title: Luvmaschine Original Mix
   * Apple Music ID: 16256298393022529679
-  * Duration: ~414.7s (~6:54.7)
+  * Duration: ~414.8s (~6:54.8)
   * Automix Start: ~54.8s (~0:54.8)
   * Automix End: ~378.9s (~6:18.9)
   * BPM: ~114.0
-  * Key Index: 4
+  * Key Index: 3
 
 ## Format description
 
@@ -147,12 +147,20 @@ Compact entities reference the verbose schema by field ID:
 
 **"Take last N bytes" strategy:** strip the type tag byte, take the last N bytes (4 for float32/uint32, 1 for uint8, 8 for float64) as the value. This handles variable padding without needing to understand the padding rules.
 
-Example from ADCCuePoint compact entity:
+Example from ADCCuePoint compact entity (guiboratto — schema order: time, number, endTime):
 ```
 2B 05 10 13 00 00 50 cc 8b 41  -- entity start + field 0 (time): float
     05 11 2e                       -- field 1 (number): 0x2e = 46
     05 12 00                       -- field 2 (endTime): 0
 ```
+
+Example from ADCCuePoint compact entity (luvmaschine — schema order: time, endTime, number):
+```
+2B 05 11 13 00 00 00 b4 f0 5a 42  -- entity start + field 1 (endTime): float
+    05 12 13 00 00 00 80 bf        -- field 2 (number): float
+```
+
+**Note:** The field ordering in the verbose schema declaration determines compact field IDs and can vary between files for the same entity type. For ADCCuePoint, some files declare `(time, number, endTime)` while others declare `(time, endTime, number)`, shifting the compact IDs of subsequent fields.
 
 #### Apple ID extraction
 
@@ -166,8 +174,11 @@ Extract digits as decimal string, convert to int64.
 
 Times are stored in `ADCCuePoint` entities in `mediaItemUserData`:
 
-1. Extract `time` values from `ADCCuePoint` entities (both verbose and compact)
-2. First compact ADCCuePoint → automix start time (e.g., 17.475s = 0:17.5)
-3. Largest `time` value → automix end time (e.g., 272.826s = 4:32.8)
+1. Extract `time` values from verbose `ADCCuePoint` entities (scanning for `\x08time\x00`)
+2. Extract float32 values from compact `ADCCuePoint` entities (scanning for `\x2b\x05\x{N}\x13`)
+3. First compact ADCCuePoint float → automix start time (e.g., 17.475s = 0:17.5)
+4. Largest float across all cue point entities → automix end time (e.g., 272.826s = 4:32.8)
+
+The compact time field ID (`N`) is `0x10` when time is the first declared field in the schema, or `0x11` when a different field precedes it (e.g., luvmaschine, where endTime is declared before number). The "take last 4 bytes" strategy handles both with or without the escape byte.
 
 For tracks without automix, no ADCCuePoint entities exist or no times are found.
