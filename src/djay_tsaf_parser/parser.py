@@ -1,6 +1,6 @@
 """TSAF binary format parser — public API.
 
-High-level extraction functions that delegate to the structural parser in
+Convenience parsers that delegate to the structural parser in
 :mod:`djay_tsaf_parser.tsaf`.
 """
 
@@ -64,189 +64,16 @@ class MediaItemUserData:
 
 
 # ---------------------------------------------------------------------------
-# Public extraction functions
-# ---------------------------------------------------------------------------
-
-
-def extract_apple_music_id(data: bytes) -> int:
-    """Extract the Apple Music ID from a localMediaItemLocations TSAF blob.
-
-    Walks the parsed entity tree to find the Apple ID string stored in the
-    anonymous collection field of ``ADCMediaItemLocation``.
-
-    Args:
-        data: Raw binary content of a localMediaItemLocations TSAF file.
-
-    Returns:
-        Apple Music ID as an integer.
-
-    Raises:
-        TSAFParseError: If the Apple Music ID field is not found or malformed.
-    """
-    doc = parse_tsaf(data)
-    for entity in find_all_entities(doc.entities, "MediaItemLocation"):
-        for f in entity.fields:
-            if not isinstance(f.value, list):
-                continue
-            for item in f.value:
-                if isinstance(item, str) and item.startswith(APPLE_MUSIC_ID_PREFIX):
-                    digits = item[len(APPLE_MUSIC_ID_PREFIX):]
-                    if not digits.isdigit():
-                        raise TSAFParseError(f"Expected decimal digits, got: {digits!r}")
-                    return int(digits)
-    raise TSAFParseError("Apple Music ID field not found in data")
-
-
-def extract_title(data: bytes) -> str:
-    """Extract the track title.
-
-    Args:
-        data: Raw TSAF binary data.
-
-    Returns:
-        Track title as a string.
-
-    Raises:
-        TSAFParseError: If the title field is not found.
-    """
-    try:
-        doc = parse_tsaf(data)
-        title_id = _find_title_id_entity(doc)
-    except TSAFParseError:
-        raise TSAFParseError("Field 'title' not found in data")
-    for f in title_id.fields:
-        if f.name == "title" and isinstance(f.value, str):
-            return f.value
-    raise TSAFParseError("Field 'title' not found in data")
-
-
-def extract_artist(data: bytes) -> str:
-    """Extract the artist name.
-
-    Args:
-        data: Raw TSAF binary data.
-
-    Returns:
-        Artist name as a string.
-
-    Raises:
-        TSAFParseError: If the artist field is not found.
-    """
-    try:
-        doc = parse_tsaf(data)
-        title_id = _find_title_id_entity(doc)
-    except TSAFParseError:
-        raise TSAFParseError("Field 'artist' not found in data")
-    for f in title_id.fields:
-        if f.name == "artist" and isinstance(f.value, str):
-            return f.value
-    raise TSAFParseError("Field 'artist' not found in data")
-
-
-def _find_title_id_entity(doc: "TSAFDocument") -> "VerboseEntity":
-    """Return the ADCMediaItemTitleID entity from a parsed document.
-
-    It is either the top-level entity (mediaItemTitleIDs files) or the first
-    VerboseEntity inside a collection field of the top-level container entity
-    (localMediaItemLocations, mediaItemAnalyzedData, mediaItemUserData).
-
-    Raises:
-        TSAFParseError: If no ADCMediaItemTitleID entity is found.
-    """
-    top = doc.entities[0] if doc.entities else None
-    if isinstance(top, VerboseEntity) and top.type_name == "ADCMediaItemTitleID":
-        return top
-    if isinstance(top, VerboseEntity):
-        for f in top.fields:
-            if not isinstance(f.value, list):
-                continue
-            for item in f.value:
-                if isinstance(item, VerboseEntity) and item.type_name == "ADCMediaItemTitleID":
-                    return item
-    raise TSAFParseError("ADCMediaItemTitleID entity not found in data")
-
-
-def extract_duration(data: bytes) -> float:
-    """Extract the track duration in seconds.
-
-    Args:
-        data: Raw TSAF binary data.
-
-    Returns:
-        Duration in seconds as a float.
-
-    Raises:
-        TSAFParseError: If the duration field is not found.
-    """
-    doc = parse_tsaf(data)
-    title_id = _find_title_id_entity(doc)
-    for f in title_id.fields:
-        if f.name == "duration" and isinstance(f.value, (int, float)):
-            return float(f.value)
-    raise TSAFParseError("Field 'duration' not found in data")
-
-
-def _find_analyzed_data_entity(doc: "TSAFDocument") -> "VerboseEntity":
-    """Return the ADCMediaItemAnalyzedData entity from a parsed document.
-
-    It is always the top-level entity in mediaItemAnalyzedData files.
-
-    Raises:
-        TSAFParseError: If no ADCMediaItemAnalyzedData entity is found.
-    """
-    top = doc.entities[0] if doc.entities else None
-    if isinstance(top, VerboseEntity) and top.type_name == "ADCMediaItemAnalyzedData":
-        return top
-    raise TSAFParseError("ADCMediaItemAnalyzedData entity not found in data")
-
-
-def extract_bpm(data: bytes) -> float:
-    """Extract the BPM from a mediaItemAnalyzedData TSAF blob.
-
-    Args:
-        data: Raw binary content of a mediaItemAnalyzedData TSAF file.
-
-    Returns:
-        BPM as a float.
-
-    Raises:
-        TSAFParseError: If the bpm field is not found.
-    """
-    doc = parse_tsaf(data)
-    analyzed = _find_analyzed_data_entity(doc)
-    for f in analyzed.fields:
-        if f.name == "bpm" and isinstance(f.value, (int, float)):
-            return float(f.value)
-    raise TSAFParseError("Field 'bpm' not found in data")
-
-
-def extract_key_signature_index(data: bytes) -> int:
-    """Extract the key signature index from a mediaItemAnalyzedData TSAF blob.
-
-    Args:
-        data: Raw binary content of a mediaItemAnalyzedData TSAF file.
-
-    Returns:
-        Key signature index as an integer (0–255).
-
-    Raises:
-        TSAFParseError: If the keySignatureIndex field is not found.
-    """
-    doc = parse_tsaf(data)
-    analyzed = _find_analyzed_data_entity(doc)
-    for f in analyzed.fields:
-        if f.name == "keySignatureIndex" and isinstance(f.value, int):
-            return f.value
-    raise TSAFParseError("Field 'keySignatureIndex' not found in data")
-
-
-# ---------------------------------------------------------------------------
 # Convenience parsers
 # ---------------------------------------------------------------------------
 
 
 def parse_local_media_item_location(data: bytes) -> LocalMediaItemLocation:
     """Parse all known fields from a localMediaItemLocations TSAF blob.
+
+    Structure: ADCMediaItemLocation
+      titleIDs collection → ADCMediaItemTitleID (title, artist, duration)
+      anonymous collection → "com.apple.iTunes:DIGITS" strings
 
     Args:
         data: Raw binary content of a localMediaItemLocations TSAF file.
@@ -257,16 +84,45 @@ def parse_local_media_item_location(data: bytes) -> LocalMediaItemLocation:
     Raises:
         TSAFParseError: If any required field is missing or malformed.
     """
+    doc = parse_tsaf(data)
+    location = doc.entities[0]
+    if not isinstance(location, VerboseEntity):
+        raise TSAFParseError("Expected ADCMediaItemLocation as top-level entity")
+
+    title_ids_field = next((f for f in location.fields if f.name == "titleIDs"), None)
+    if not title_ids_field or not isinstance(title_ids_field.value, list):
+        raise TSAFParseError("titleIDs field not found")
+    title_id = title_ids_field.value[0]
+    tid = {f.name: f.value for f in title_id.fields}
+
+    apple_id_collection = next(
+        (f.value for f in location.fields if f.name is None and isinstance(f.value, list)),
+        None,
+    )
+    if not apple_id_collection:
+        raise TSAFParseError("Apple Music ID field not found in data")
+    apple_id_str = next(
+        (s for s in apple_id_collection if isinstance(s, str) and s.startswith(APPLE_MUSIC_ID_PREFIX)),
+        None,
+    )
+    if not apple_id_str:
+        raise TSAFParseError("Apple Music ID field not found in data")
+    digits = apple_id_str[len(APPLE_MUSIC_ID_PREFIX):]
+    if not digits.isdigit():
+        raise TSAFParseError(f"Expected decimal digits, got: {digits!r}")
+
     return LocalMediaItemLocation(
-        apple_music_id=extract_apple_music_id(data),
-        title=extract_title(data),
-        artist=extract_artist(data),
-        duration=extract_duration(data),
+        apple_music_id=int(digits),
+        title=tid["title"],
+        artist=tid["artist"],
+        duration=float(tid["duration"]),
     )
 
 
 def parse_media_item_title_id(data: bytes) -> MediaItemTitleID:
     """Parse all known fields from a mediaItemTitleIDs TSAF blob.
+
+    Structure: ADCMediaItemTitleID (title, artist, duration)
 
     Args:
         data: Raw binary content of a mediaItemTitleIDs TSAF file.
@@ -277,15 +133,23 @@ def parse_media_item_title_id(data: bytes) -> MediaItemTitleID:
     Raises:
         TSAFParseError: If any required field is missing or malformed.
     """
+    doc = parse_tsaf(data)
+    title_id = doc.entities[0]
+    if not isinstance(title_id, VerboseEntity):
+        raise TSAFParseError("Expected ADCMediaItemTitleID as top-level entity")
+    tid = {f.name: f.value for f in title_id.fields}
     return MediaItemTitleID(
-        title=extract_title(data),
-        artist=extract_artist(data),
-        duration=extract_duration(data),
+        title=tid["title"],
+        artist=tid["artist"],
+        duration=float(tid["duration"]),
     )
 
 
 def parse_media_item_analyzed_data(data: bytes) -> MediaItemAnalyzedData:
     """Parse all known fields from a mediaItemAnalyzedData TSAF blob.
+
+    Structure: ADCMediaItemAnalyzedData (uuid, titleIDs, bpm, keySignatureIndex, ...)
+      titleIDs collection → ADCMediaItemTitleID (title, artist, duration)
 
     Args:
         data: Raw binary content of a mediaItemAnalyzedData TSAF file.
@@ -296,17 +160,31 @@ def parse_media_item_analyzed_data(data: bytes) -> MediaItemAnalyzedData:
     Raises:
         TSAFParseError: If any required field is missing or malformed.
     """
+    doc = parse_tsaf(data)
+    analyzed = doc.entities[0]
+    if not isinstance(analyzed, VerboseEntity):
+        raise TSAFParseError("Expected ADCMediaItemAnalyzedData as top-level entity")
+
+    title_ids_field = next((f for f in analyzed.fields if f.name == "titleIDs"), None)
+    if not title_ids_field or not isinstance(title_ids_field.value, list):
+        raise TSAFParseError("titleIDs field not found")
+    tid = {f.name: f.value for f in title_ids_field.value[0].fields}
+
+    ad = {f.name: f.value for f in analyzed.fields}
     return MediaItemAnalyzedData(
-        title=extract_title(data),
-        artist=extract_artist(data),
-        duration=extract_duration(data),
-        bpm=extract_bpm(data),
-        key_signature_index=extract_key_signature_index(data),
+        title=tid["title"],
+        artist=tid["artist"],
+        duration=float(tid["duration"]),
+        bpm=float(ad["bpm"]),
+        key_signature_index=ad["keySignatureIndex"],
     )
 
 
 def parse_media_item_user_data(data: bytes) -> MediaItemUserData:
     """Parse all known fields from a mediaItemUserData TSAF blob.
+
+    Structure: ADCMediaItemUserData (uuid, anonymous collection → ADCMediaItemTitleID)
+      Top-level ADCCuePoint entities carry automix times.
 
     Automix cue times are extracted from ``ADCCuePoint`` entities:
 
@@ -327,6 +205,17 @@ def parse_media_item_user_data(data: bytes) -> MediaItemUserData:
         TSAFParseError: If any required field is missing or malformed.
     """
     doc = parse_tsaf(data)
+    user_data = doc.entities[0]
+    if not isinstance(user_data, VerboseEntity):
+        raise TSAFParseError("Expected ADCMediaItemUserData as top-level entity")
+
+    title_id_collection = next(
+        (f.value for f in user_data.fields if isinstance(f.value, list)),
+        None,
+    )
+    if not title_id_collection:
+        raise TSAFParseError("titleIDs collection not found in ADCMediaItemUserData")
+    tid = {f.name: f.value for f in title_id_collection[0].fields}
 
     verbose_times: list[float] = []
     compact_times: list[float] = []
@@ -337,7 +226,6 @@ def parse_media_item_user_data(data: bytes) -> MediaItemUserData:
                 if f.name == "time" and isinstance(f.value, float):
                     verbose_times.append(f.value)
         elif isinstance(entity, CompactEntity):
-            # Take the first float32 field from each compact cue entity
             for f in entity.fields:
                 if isinstance(f.value, float):
                     compact_times.append(f.value)
@@ -348,9 +236,9 @@ def parse_media_item_user_data(data: bytes) -> MediaItemUserData:
     automix_end_point: float | None = max(all_times) if all_times else None
 
     return MediaItemUserData(
-        title=extract_title(data),
-        artist=extract_artist(data),
-        duration=extract_duration(data),
+        title=tid["title"],
+        artist=tid["artist"],
+        duration=float(tid["duration"]),
         automix_start_point=automix_start_point,
         automix_end_point=automix_end_point,
     )
