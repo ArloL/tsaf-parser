@@ -10,7 +10,6 @@ from djay_tsaf_parser.tsaf import (
     CompactEntity,
     TSAFParseError,
     VerboseEntity,
-    find_all_entities,
     parse_tsaf,
 )
 
@@ -215,7 +214,11 @@ def parse_media_item_user_data(data: bytes) -> MediaItemUserData:
     verbose_times: list[float] = []
     compact_times: list[float] = []
 
-    for entity in find_all_entities(doc.entities, "CuePoint"):
+    for entity in doc.entities:
+        if not isinstance(entity, (VerboseEntity, CompactEntity)):
+            continue
+        if "CuePoint" not in entity.type_name:
+            continue
         if isinstance(entity, VerboseEntity):
             for f in entity.fields:
                 if f.name == "time" and isinstance(f.value, float):

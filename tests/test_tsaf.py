@@ -7,8 +7,6 @@ from djay_tsaf_parser.tsaf import (
     TSAFDocument,
     TSAFParseError,
     VerboseEntity,
-    find_all_entities,
-    find_field,
     parse_tsaf,
 )
 
@@ -125,9 +123,13 @@ def test_parse_tsaf_localMediaItemLocations_apple_id_in_collection():
 def test_parse_tsaf_mediaItemAnalyzedData_entity_types():
     data = _load("guiboratto-mediaItemAnalyzedData.bin")
     doc = parse_tsaf(data)
-    # ADCMediaItemTitleID is nested inside a collection field of ADCMediaItemAnalyzedData
-    assert len(find_all_entities(doc.entities, "ADCMediaItemAnalyzedData")) == 1
-    assert len(find_all_entities(doc.entities, "ADCMediaItemTitleID")) == 1
+    analyzed = doc.entities[0]
+    assert isinstance(analyzed, VerboseEntity)
+    assert analyzed.type_name == "ADCMediaItemAnalyzedData"
+    title_ids_field = next(f for f in analyzed.fields if f.name == "titleIDs")
+    assert len(title_ids_field.value) == 1
+    assert isinstance(title_ids_field.value[0], VerboseEntity)
+    assert title_ids_field.value[0].type_name == "ADCMediaItemTitleID"
 
 
 def test_parse_tsaf_mediaItemAnalyzedData_bpm_and_key():
@@ -149,24 +151,25 @@ def test_parse_tsaf_mediaItemAnalyzedData_bpm_and_key():
 # ---------------------------------------------------------------------------
 
 
+def _cue_entities(doc):
+    return [e for e in doc.entities if isinstance(e, (VerboseEntity, CompactEntity)) and "CuePoint" in e.type_name]
+
+
 def test_parse_tsaf_mediaItemUserData_cue_entity_types():
     """guiboratto user data has one verbose and two compact ADCCuePoint entities."""
     data = _load("guiboratto-mediaItemUserData.bin")
     doc = parse_tsaf(data)
-    cue_entities = find_all_entities(doc.entities, "CuePoint")
-    assert len(cue_entities) == 3
-    assert isinstance(cue_entities[0], VerboseEntity)
-    assert isinstance(cue_entities[1], CompactEntity)
-    assert isinstance(cue_entities[2], CompactEntity)
+    cues = _cue_entities(doc)
+    assert len(cues) == 3
+    assert isinstance(cues[0], VerboseEntity)
+    assert isinstance(cues[1], CompactEntity)
+    assert isinstance(cues[2], CompactEntity)
 
 
 def test_parse_tsaf_mediaItemUserData_verbose_cue_fields():
     data = _load("guiboratto-mediaItemUserData.bin")
     doc = parse_tsaf(data)
-    verbose_cue = next(
-        e for e in find_all_entities(doc.entities, "CuePoint")
-        if isinstance(e, VerboseEntity)
-    )
+    verbose_cue = next(e for e in _cue_entities(doc) if isinstance(e, VerboseEntity))
     field_map = {f.name: f for f in verbose_cue.fields}
     assert "time" in field_map
     assert field_map["time"].type_tag == 0x13
@@ -177,13 +180,9 @@ def test_parse_tsaf_mediaItemUserData_compact_cue_time_field():
     """First compact ADCCuePoint has a resolved 'time' field name from schema registry."""
     data = _load("guiboratto-mediaItemUserData.bin")
     doc = parse_tsaf(data)
-    compact_cues = [
-        e for e in find_all_entities(doc.entities, "CuePoint")
-        if isinstance(e, CompactEntity)
-    ]
+    compact_cues = [e for e in _cue_entities(doc) if isinstance(e, CompactEntity)]
     assert len(compact_cues) >= 1
-    first_compact = compact_cues[0]
-    time_field = next(f for f in first_compact.fields if f.name == "time")
+    time_field = next(f for f in compact_cues[0].fields if f.name == "time")
     assert time_field.type_tag == 0x13
     assert time_field.value == pytest.approx(17.475, abs=0.01)
 
@@ -192,40 +191,9 @@ def test_parse_tsaf_luvmaschine_cue_schema_order():
     """luvmaschine ADCCuePoint schema declares (time, endTime, number) — different from guiboratto."""
     data = _load("luvmaschine-mediaItemUserData.bin")
     doc = parse_tsaf(data)
-    verbose_cue = next(
-        e for e in find_all_entities(doc.entities, "CuePoint")
-        if isinstance(e, VerboseEntity)
-    )
+    verbose_cue = next(e for e in _cue_entities(doc) if isinstance(e, VerboseEntity))
     field_names = [f.name for f in verbose_cue.fields if f.name is not None]
     assert field_names[0] == "time"
     assert "endTime" in field_names
 
 
-# ---------------------------------------------------------------------------
-# Query helpers
-# ---------------------------------------------------------------------------
-
-
-def test_find_field_helper():
-    data = _load("guiboratto-mediaItemTitleIDs.bin")
-    doc = parse_tsaf(data)
-    assert find_field(doc.entities, "TitleID", "title") == "Arquipelago (Original Mix)"
-    assert find_field(doc.entities, "TitleID", "artist") == "Gui Boratto"
-    assert find_field(doc.entities, "TitleID", "nonexistent") is None
-
-
-def test_find_field_nested():
-    """find_field descends into nested entities inside collection fields."""
-    data = _load("guiboratto-localMediaItemLocations.bin")
-    doc = parse_tsaf(data)
-    title = find_field(doc.entities, "TitleID", "title")
-    assert title == "Arquipelago (Original Mix)"
-
-
-def test_find_all_entities_returns_all_depths():
-    """find_all_entities finds entities nested inside collection fields."""
-    data = _load("guiboratto-localMediaItemLocations.bin")
-    doc = parse_tsaf(data)
-    title_ids = find_all_entities(doc.entities, "TitleID")
-    assert len(title_ids) >= 1
-    assert all("TitleID" in e.type_name for e in title_ids)

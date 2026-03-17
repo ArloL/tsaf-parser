@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import struct
 from dataclasses import dataclass, field
-from typing import Iterator
-
 # ---------------------------------------------------------------------------
 # Exceptions
 # ---------------------------------------------------------------------------
@@ -249,6 +247,34 @@ def _read_field_name(r: _Reader) -> str | None:
     return None
 
 
+_UNRECOGNISED = object()  # sentinel returned by _read_typed_value for unknown tags
+
+
+def _read_typed_value(r: _Reader, type_tag: int) -> str | float | int | bytes | object:
+    """Read the value bytes for a given type tag.
+
+    Returns the decoded value, or *_UNRECOGNISED* for unknown type tags.
+    Callers must handle 0x08 (string, needs disambiguation), 0x0B
+    (collection), and 0x05 (cross-ref / int32) themselves.
+    """
+    if type_tag == 0x13:
+        return struct.unpack("<f", r.read_numeric(4))[0]
+    if type_tag == 0x30:
+        return struct.unpack("<d", r.read_numeric(8))[0]
+    if type_tag == 0x0F:
+        return r.read_byte()
+    if type_tag == 0x2E:
+        return 0x2E  # self-value; no further bytes
+    if type_tag == 0x0D:
+        return True  # boolean flag; no further bytes
+    if type_tag == 0x00:
+        return 0  # zero sentinel; no further bytes
+    if type_tag == 0x15:
+        size = struct.unpack("<I", r.read_numeric(4))[0]
+        return r.read(size)
+    return _UNRECOGNISED
+
+
 def _parse_verbose_entity(
     r: _Reader,
     schema_registry: dict[str, list[str]],
@@ -270,11 +296,9 @@ def _parse_verbose_entity(
     while r.remaining > 0:
         b = r.peek()[0]
 
-        # Next top-level entity starts
         if b == 0x2B:
-            break
+            break  # next entity starts here
 
-        # Entity body terminator
         if b == 0x00:
             r.read_byte()
             _skip_cross_refs(r)
@@ -287,112 +311,49 @@ def _parse_verbose_entity(
 
         type_tag = r.read_byte()
 
-        # ---- String (0x08) ----
         if type_tag == 0x08:
+            # String disambiguation: S is a value when followed by 0x08 (field name marker)
             s = r.read_cstring()
             if r.remaining > 0 and r.peek()[0] == 0x08:
-                # S is a string VALUE; consume field-name marker + name
                 r.read_byte()
                 field_name = r.read_cstring()
                 fields.append(TSAFField(name=field_name, value=s, type_tag=0x08))
                 schema_names.append(field_name)
             else:
-                # S is a FIELD NAME in a schema declaration (no value)
-                schema_names.append(s)
+                schema_names.append(s)  # schema declaration; no value
 
-        # ---- Collection / schema block (0x0B) ----
         elif type_tag == 0x0B:
-            count_bytes = r.read_numeric(4)
-            count = struct.unpack("<I", count_bytes)[0]
+            count = struct.unpack("<I", r.read_numeric(4))[0]
             sub, names = _parse_collection_body(r, count, schema_registry)
             if names:
-                # Schema block: register and don't add as a data field
                 schema_names.extend(names)
             else:
-                # Sub-entity collection: read optional field name
                 field_name = _read_field_name(r)
                 fields.append(TSAFField(name=field_name, value=sub, type_tag=0x0B))
                 if field_name:
                     schema_names.append(field_name)
 
-        # ---- float32 (0x13) ----
-        elif type_tag == 0x13:
-            raw = r.read_numeric(4)
-            value = struct.unpack("<f", raw)[0]
-            field_name = _read_field_name(r)
-            fields.append(TSAFField(name=field_name, value=value, type_tag=0x13))
-            if field_name:
-                schema_names.append(field_name)
-
-        # ---- float64 (0x30) ----
-        elif type_tag == 0x30:
-            raw = r.read_numeric(8)
-            value = struct.unpack("<d", raw)[0]
-            field_name = _read_field_name(r)
-            fields.append(TSAFField(name=field_name, value=value, type_tag=0x30))
-            if field_name:
-                schema_names.append(field_name)
-
-        # ---- uint32 / int32 (0x05) ----
         elif type_tag == 0x05:
-            # Could be a data field (value) or a stray cross-ref; peek at next byte
+            # Stray cross-ref (already consumed 0x05; skip ref_id) or int32 data field
             next_b = r.peek()[0] if r.remaining > 0 else 0x00
             if next_b < 0x10:
-                # Cross-reference; already consumed 0x05, skip ref_id
                 r.read_byte()
                 continue
-            raw = r.read_numeric(4)
-            value = struct.unpack("<i", raw)[0]
+            value = struct.unpack("<i", r.read_numeric(4))[0]
             field_name = _read_field_name(r)
             fields.append(TSAFField(name=field_name, value=value, type_tag=0x05))
             if field_name:
                 schema_names.append(field_name)
 
-        # ---- uint8 (0x0F) ----
-        elif type_tag == 0x0F:
-            value = r.read_byte()
-            field_name = _read_field_name(r)
-            fields.append(TSAFField(name=field_name, value=value, type_tag=0x0F))
-            if field_name:
-                schema_names.append(field_name)
-
-        # ---- self-value / cue-number (0x2E = 46) ----
-        elif type_tag == 0x2E:
-            field_name = _read_field_name(r)
-            fields.append(TSAFField(name=field_name, value=0x2E, type_tag=0x2E))
-            if field_name:
-                schema_names.append(field_name)
-
-        # ---- boolean flag (0x0D) — implicit true, 0 value bytes ----
-        elif type_tag == 0x0D:
-            field_name = _read_field_name(r)
-            fields.append(TSAFField(name=field_name, value=True, type_tag=0x0D))
-            if field_name:
-                schema_names.append(field_name)
-
-        # ---- null / zero sentinel (0x00) ----
-        elif type_tag == 0x00:
-            # Treat as zero value with no extra bytes; likely "endTime: 0"
-            field_name = _read_field_name(r)
-            fields.append(TSAFField(name=field_name, value=0, type_tag=0x00))
-            if field_name:
-                schema_names.append(field_name)
-
-        # ---- raw data block (0x15) ----
-        elif type_tag == 0x15:
-            size_bytes = r.read_numeric(4)
-            size = struct.unpack("<I", size_bytes)[0]
-            value = r.read(size)
-            field_name = _read_field_name(r)
-            fields.append(TSAFField(name=field_name, value=value, type_tag=0x15))
-            if field_name:
-                schema_names.append(field_name)
-
         else:
-            # Unknown type tag — stop parsing this entity gracefully
-            break
+            value = _read_typed_value(r, type_tag)
+            if value is _UNRECOGNISED:
+                break
+            field_name = _read_field_name(r)
+            fields.append(TSAFField(name=field_name, value=value, type_tag=type_tag))
+            if field_name:
+                schema_names.append(field_name)
 
-    # Register schema for this entity type on first encounter
     if schema_names and type_name not in schema_registry:
         schema_registry[type_name] = schema_names
 
@@ -413,41 +374,24 @@ def _parse_compact_entity_body(
     schema_fields = schema_registry.get(type_name, [])
     fields: list[TSAFField] = []
 
-    def _resolve_name(field_id: int) -> str | None:
+    def _read_value(type_tag: int) -> str | float | int | bytes | None:
+        if type_tag in (0x05, 0x0B):
+            return struct.unpack("<I", r.read_numeric(4))[0]
+        v = _read_typed_value(r, type_tag)
+        return None if v is _UNRECOGNISED else v
+
+    def _field_name(field_id: int) -> str | None:
         idx = field_id - 0x10
         return schema_fields[idx] if 0 <= idx < len(schema_fields) else None
 
-    def _read_value(type_tag: int) -> str | float | int | bytes | None:
-        if type_tag == 0x08:
-            return r.read_cstring()
-        if type_tag == 0x13:
-            return struct.unpack("<f", r.read_numeric(4))[0]
-        if type_tag == 0x30:
-            return struct.unpack("<d", r.read_numeric(8))[0]
-        if type_tag in (0x05, 0x0B):
-            return struct.unpack("<I", r.read_numeric(4))[0]
-        if type_tag == 0x0F:
-            return r.read_byte()
-        if type_tag == 0x2E:
-            return 0x2E
-        if type_tag == 0x0D:
-            return True
-        if type_tag == 0x00:
-            return 0
-        if type_tag == 0x15:
-            size = struct.unpack("<I", r.read_numeric(4))[0]
-            return r.read(size)
-        return None
-
-    # First field ID is read directly (no preceding 0x05)
     if r.remaining == 0:
         return CompactEntity(type_name=type_name, fields=fields)
 
+    # First field ID is read directly (no preceding 0x05 separator)
     first_id = r.read_byte()
     if first_id >= 0x10:
         type_tag = r.read_byte()
-        value = _read_value(type_tag)
-        fields.append(TSAFField(name=_resolve_name(first_id), value=value, type_tag=type_tag))
+        fields.append(TSAFField(name=_field_name(first_id), value=_read_value(type_tag), type_tag=type_tag))
 
     # Subsequent fields: each preceded by 0x05 + field_id
     while r.remaining > 0:
@@ -455,7 +399,7 @@ def _parse_compact_entity_body(
         if b == 0x2B:
             break
         if b == 0x00:
-            r.read_byte()  # consume entity terminator
+            r.read_byte()
             _skip_cross_refs(r)
             break
         if b != 0x05:
@@ -465,13 +409,11 @@ def _parse_compact_entity_body(
             break
         field_id = r.read_byte()
         if field_id < 0x10:
-            # Cross-reference to parent entity — skip
-            continue
+            continue  # cross-reference to parent entity; skip
         if r.remaining == 0:
             break
         type_tag = r.read_byte()
-        value = _read_value(type_tag)
-        fields.append(TSAFField(name=_resolve_name(field_id), value=value, type_tag=type_tag))
+        fields.append(TSAFField(name=_field_name(field_id), value=_read_value(type_tag), type_tag=type_tag))
 
     return CompactEntity(type_name=type_name, fields=fields)
 
@@ -532,52 +474,3 @@ def parse_tsaf(data: bytes) -> TSAFDocument:
     return TSAFDocument(header=header, entities=entities)
 
 
-# ---------------------------------------------------------------------------
-# Query helpers
-# ---------------------------------------------------------------------------
-
-
-def _all_entities(entities: list[TSAFEntity]) -> Iterator[TSAFEntity]:
-    """Depth-first iteration over all entities, including nested collection items."""
-    for entity in entities:
-        yield entity
-        if isinstance(entity, (VerboseEntity, CompactEntity)):
-            for f in entity.fields:
-                if isinstance(f.value, list):
-                    # Collection field: items may be TSAFEntity instances
-                    nested = [item for item in f.value if isinstance(item, (VerboseEntity, CompactEntity, RawEntity))]
-                    yield from _all_entities(nested)
-
-
-def find_field(
-    entities: list[TSAFEntity],
-    type_name_fragment: str,
-    field_name: str,
-) -> str | float | int | list | bytes | None:
-    """Return the first field value where entity type contains *type_name_fragment*.
-
-    Searches depth-first through all entities and their nested collection items.
-    Returns ``None`` if no matching field is found.
-    """
-    for entity in _all_entities(entities):
-        if not isinstance(entity, (VerboseEntity, CompactEntity)):
-            continue
-        if type_name_fragment not in entity.type_name:
-            continue
-        for f in entity.fields:
-            if f.name == field_name:
-                return f.value
-    return None
-
-
-def find_all_entities(
-    entities: list[TSAFEntity],
-    type_name_fragment: str,
-) -> list[TSAFEntity]:
-    """Return all entities (at any depth) whose type_name contains *type_name_fragment*."""
-    return [
-        e
-        for e in _all_entities(entities)
-        if isinstance(e, (VerboseEntity, CompactEntity))
-        and type_name_fragment in e.type_name
-    ]
