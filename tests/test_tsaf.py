@@ -2,10 +2,10 @@
 
 import pytest
 
-from djay_tsaf_parser.parser import TSAFParseError
 from djay_tsaf_parser.tsaf import (
     CompactEntity,
     TSAFDocument,
+    TSAFParseError,
     VerboseEntity,
     find_all_entities,
     find_field,

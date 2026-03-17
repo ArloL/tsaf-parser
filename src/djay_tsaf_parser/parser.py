@@ -8,18 +8,13 @@ from dataclasses import dataclass
 
 from djay_tsaf_parser.tsaf import (
     CompactEntity,
+    TSAFParseError,
     VerboseEntity,
     find_all_entities,
     parse_tsaf,
 )
 
 APPLE_MUSIC_ID_PREFIX = "com.apple.iTunes:"
-
-
-class TSAFParseError(Exception):
-    """Raised when TSAF data cannot be parsed."""
-
-    pass
 
 
 @dataclass

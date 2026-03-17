@@ -11,10 +11,19 @@ from dataclasses import dataclass, field
 from typing import Iterator
 
 # ---------------------------------------------------------------------------
-# Data model
+# Exceptions
 # ---------------------------------------------------------------------------
 
-FieldValue = "str | float | int | list[TSAFEntity] | bytes | None"
+
+class TSAFParseError(Exception):
+    """Raised when TSAF data cannot be parsed."""
+
+    pass
+
+
+# ---------------------------------------------------------------------------
+# Data model
+# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -109,8 +118,6 @@ class _Reader:
 
     def read(self, n: int) -> bytes:
         """Read exactly n bytes and advance the cursor."""
-        from djay_tsaf_parser.parser import TSAFParseError
-
         if self._pos + n > len(self._data):
             raise TSAFParseError(
                 f"Unexpected end of data at offset {self._pos:#x}: "
@@ -159,8 +166,6 @@ def _skip_cross_refs(r: _Reader) -> None:
 
 
 def _parse_header(r: _Reader) -> TSAFHeader:
-    from djay_tsaf_parser.parser import TSAFParseError
-
     magic = r.read(4)
     if magic != b"TSAF":
         raise TSAFParseError(f"Invalid magic bytes: {magic!r}")
@@ -175,7 +180,8 @@ def _parse_header(r: _Reader) -> TSAFHeader:
 def _parse_sub_entity(r: _Reader, schema_registry: dict[str, list[str]]) -> TSAFEntity:
     """Parse one entity that starts with 0x2B inside a collection field."""
     marker = r.read_byte()
-    assert marker == 0x2B, f"Expected entity marker 0x2B, got {marker:#04x}"
+    if marker != 0x2B:
+        raise TSAFParseError(f"Expected entity marker 0x2B, got {marker:#04x}")
     form = r.read_byte()
     if form == 0x08:
         return _parse_verbose_entity(r, schema_registry)
