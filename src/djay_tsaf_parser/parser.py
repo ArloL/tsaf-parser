@@ -1,18 +1,20 @@
-"""TSAF binary format parser."""
+"""TSAF binary format parser — public API.
 
-import re
-import struct
+High-level extraction functions that delegate to the structural parser in
+:mod:`djay_tsaf_parser.tsaf`.
+"""
+
 from dataclasses import dataclass
 
-APPLE_MUSIC_ID_PREFIX = b"\x21\x08com.apple.iTunes:"
-STRING_TYPE_TAG = b"\x08"
-
-# Compact ADCCuePoint time field followed by the next field marker.
-# Field ID varies by schema: 0x10 (first field) or 0x11 (second field).
-_COMPACT_CUE_TIME_RE = re.compile(
-    rb"\x2b\x05\x10\x13(.+?)\x05\x11|\x2b\x05\x11\x13(.+?)\x05\x12",
-    re.DOTALL,
+from djay_tsaf_parser.tsaf import (
+    CompactEntity,
+    VerboseEntity,
+    find_all_entities,
+    find_field,
+    parse_tsaf,
 )
+
+APPLE_MUSIC_ID_PREFIX = b"\x21\x08com.apple.iTunes:"
 
 
 class TSAFParseError(Exception):
@@ -63,127 +65,6 @@ class MediaItemUserData:
 
 
 # ---------------------------------------------------------------------------
-# Private helpers
-# ---------------------------------------------------------------------------
-
-
-def _extract_string_field(data: bytes, field_name: str) -> str:
-    """Extract a string value for the given field name.
-
-    Scans backwards from the ``\\x08<field_name>\\x00`` marker to find the
-    preceding null-terminated string value.
-
-    Args:
-        data: Raw TSAF binary data.
-        field_name: Name of the field to extract.
-
-    Returns:
-        Decoded UTF-8 string value.
-
-    Raises:
-        TSAFParseError: If the field is not found or malformed.
-    """
-    marker = STRING_TYPE_TAG + field_name.encode() + b"\x00"
-    marker_offset = data.find(marker)
-    if marker_offset == -1:
-        raise TSAFParseError(f"Field '{field_name}' not found in data")
-
-    # The byte immediately before the marker is the null terminator of the value.
-    null_offset = marker_offset - 1
-    if null_offset < 1 or data[null_offset] != 0x00:
-        raise TSAFParseError(f"Expected null terminator before field '{field_name}'")
-
-    # Scan back to find the string type tag (0x08) that opens the value.
-    tag_offset = data.rindex(STRING_TYPE_TAG, 0, null_offset)
-    return data[tag_offset + 1 : null_offset].decode("utf-8")
-
-
-def _extract_float32_field(data: bytes, field_name: str) -> float:
-    """Extract a float32 value for the given field name.
-
-    Uses the "take last 4 bytes" strategy: the 4 bytes immediately before
-    ``\\x08<field_name>\\x00`` are the little-endian float32 value, regardless
-    of whether the optional escape byte (``0x00``) is present.
-
-    Args:
-        data: Raw TSAF binary data.
-        field_name: Name of the field to extract.
-
-    Returns:
-        Float32 value.
-
-    Raises:
-        TSAFParseError: If the field is not found.
-    """
-    marker = STRING_TYPE_TAG + field_name.encode() + b"\x00"
-    marker_offset = data.find(marker)
-    if marker_offset == -1:
-        raise TSAFParseError(f"Field '{field_name}' not found in data")
-
-    value_bytes = data[marker_offset - 4 : marker_offset]
-    (value,) = struct.unpack("<f", value_bytes)
-    return value
-
-
-def _extract_uint8_field(data: bytes, field_name: str) -> int:
-    """Extract a uint8 value for the given field name.
-
-    Uses the "take last 1 byte" strategy: the single byte immediately before
-    ``\\x08<field_name>\\x00`` is the value.
-
-    Args:
-        data: Raw TSAF binary data.
-        field_name: Name of the field to extract.
-
-    Returns:
-        Integer value (0–255).
-
-    Raises:
-        TSAFParseError: If the field is not found.
-    """
-    marker = STRING_TYPE_TAG + field_name.encode() + b"\x00"
-    marker_offset = data.find(marker)
-    if marker_offset == -1:
-        raise TSAFParseError(f"Field '{field_name}' not found in data")
-
-    return data[marker_offset - 1]
-
-
-def _extract_cue_point_times(data: bytes) -> tuple[list[float], list[float]]:
-    """Extract ADCCuePoint time values from both verbose and compact entities.
-
-    Args:
-        data: Raw TSAF binary data.
-
-    Returns:
-        A ``(verbose_times, compact_times)`` tuple, each a list of float32
-        seconds values in order of appearance.
-    """
-    # Verbose: value immediately precedes \x08time\x00
-    verbose_times: list[float] = []
-    time_marker = b"\x08time\x00"
-    start = 0
-    while True:
-        offset = data.find(time_marker, start)
-        if offset == -1:
-            break
-        (t,) = struct.unpack("<f", data[offset - 4 : offset])
-        verbose_times.append(t)
-        start = offset + len(time_marker)
-
-    # Compact: field ID 0x10 or 0x11, each followed by the next field marker
-    compact_times: list[float] = []
-    for match in _COMPACT_CUE_TIME_RE.finditer(data):
-        value_bytes = match.group(1) or match.group(2)
-        if len(value_bytes) < 4:
-            continue
-        (t,) = struct.unpack("<f", value_bytes[-4:])
-        compact_times.append(t)
-
-    return verbose_times, compact_times
-
-
-# ---------------------------------------------------------------------------
 # Public extraction functions
 # ---------------------------------------------------------------------------
 
@@ -229,7 +110,14 @@ def extract_title(data: bytes) -> str:
     Raises:
         TSAFParseError: If the title field is not found.
     """
-    return _extract_string_field(data, "title")
+    try:
+        doc = parse_tsaf(data)
+    except TSAFParseError:
+        raise TSAFParseError("Field 'title' not found in data")
+    value = find_field(doc.entities, "TitleID", "title")
+    if not isinstance(value, str):
+        raise TSAFParseError("Field 'title' not found in data")
+    return value
 
 
 def extract_artist(data: bytes) -> str:
@@ -244,7 +132,14 @@ def extract_artist(data: bytes) -> str:
     Raises:
         TSAFParseError: If the artist field is not found.
     """
-    return _extract_string_field(data, "artist")
+    try:
+        doc = parse_tsaf(data)
+    except TSAFParseError:
+        raise TSAFParseError("Field 'artist' not found in data")
+    value = find_field(doc.entities, "TitleID", "artist")
+    if not isinstance(value, str):
+        raise TSAFParseError("Field 'artist' not found in data")
+    return value
 
 
 def extract_duration(data: bytes) -> float:
@@ -259,7 +154,11 @@ def extract_duration(data: bytes) -> float:
     Raises:
         TSAFParseError: If the duration field is not found.
     """
-    return _extract_float32_field(data, "duration")
+    doc = parse_tsaf(data)
+    value = find_field(doc.entities, "TitleID", "duration")
+    if not isinstance(value, (int, float)):
+        raise TSAFParseError("Field 'duration' not found in data")
+    return float(value)
 
 
 def extract_bpm(data: bytes) -> float:
@@ -274,7 +173,11 @@ def extract_bpm(data: bytes) -> float:
     Raises:
         TSAFParseError: If the bpm field is not found.
     """
-    return _extract_float32_field(data, "bpm")
+    doc = parse_tsaf(data)
+    value = find_field(doc.entities, "AnalyzedData", "bpm")
+    if not isinstance(value, (int, float)):
+        raise TSAFParseError("Field 'bpm' not found in data")
+    return float(value)
 
 
 def extract_key_signature_index(data: bytes) -> int:
@@ -289,7 +192,11 @@ def extract_key_signature_index(data: bytes) -> int:
     Raises:
         TSAFParseError: If the keySignatureIndex field is not found.
     """
-    return _extract_uint8_field(data, "keySignatureIndex")
+    doc = parse_tsaf(data)
+    value = find_field(doc.entities, "AnalyzedData", "keySignatureIndex")
+    if not isinstance(value, int):
+        raise TSAFParseError("Field 'keySignatureIndex' not found in data")
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -362,8 +269,10 @@ def parse_media_item_user_data(data: bytes) -> MediaItemUserData:
 
     Automix cue times are extracted from ``ADCCuePoint`` entities:
 
-    - ``automix_start_point``: time from the first compact ``ADCCuePoint``
-    - ``automix_end_point``: largest time across all ``ADCCuePoint`` entities
+    - ``automix_start_point``: first float value from the first compact
+      ``ADCCuePoint``
+    - ``automix_end_point``: largest float value across all ``ADCCuePoint``
+      entities
 
     Both are ``None`` when no cue points are present.
 
@@ -376,10 +285,24 @@ def parse_media_item_user_data(data: bytes) -> MediaItemUserData:
     Raises:
         TSAFParseError: If any required field is missing or malformed.
     """
-    verbose_times, compact_times = _extract_cue_point_times(data)
+    doc = parse_tsaf(data)
+
+    verbose_times: list[float] = []
+    compact_times: list[float] = []
+
+    for entity in find_all_entities(doc.entities, "CuePoint"):
+        if isinstance(entity, VerboseEntity):
+            for f in entity.fields:
+                if f.name == "time" and isinstance(f.value, float):
+                    verbose_times.append(f.value)
+        elif isinstance(entity, CompactEntity):
+            # Take the first float32 field from each compact cue entity
+            for f in entity.fields:
+                if isinstance(f.value, float):
+                    compact_times.append(f.value)
+                    break
 
     automix_start_point: float | None = compact_times[0] if compact_times else None
-
     all_times = verbose_times + compact_times
     automix_end_point: float | None = max(all_times) if all_times else None
 
