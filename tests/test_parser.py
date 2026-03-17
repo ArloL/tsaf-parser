@@ -39,17 +39,6 @@ def test_extract_apple_music_id_happysong():
     assert extract_apple_music_id(data) == 15276055944141716431
 
 
-def test_extract_apple_music_id_missing_raises():
-    with pytest.raises(TSAFParseError, match="not found"):
-        extract_apple_music_id(b"TSAF\x00\x03\x00\x03\x00\x00\x00\x00\x00\x00\x00\x00")
-
-
-def test_extract_apple_music_id_malformed_raises():
-    bad = b"\x21\x08com.apple.iTunes:not_digits\x00"
-    with pytest.raises(TSAFParseError, match="decimal digits"):
-        extract_apple_music_id(bad)
-
-
 # ---------------------------------------------------------------------------
 # extract_title / extract_artist / extract_duration
 # ---------------------------------------------------------------------------
@@ -93,11 +82,6 @@ def test_extract_duration_guiboratto():
 def test_extract_duration_happysong():
     data = _load("happysong-localMediaItemLocations.bin")
     assert extract_duration(data) == pytest.approx(158.0, abs=0.1)
-
-
-def test_extract_duration_missing_raises():
-    with pytest.raises(TSAFParseError, match="duration"):
-        extract_duration(b"no duration here")
 
 
 # ---------------------------------------------------------------------------

@@ -21,16 +21,38 @@ mediaItemTitleIDs and mediaItemUserData).
   * Artist: Gui Boratto
   * Track: Arquipelago (Original Mix)
   * Apple Music ID: 8986230555104447322
-  * Duration: 367.5s (6:07.5)
-  * Automix Start: 17.475s (0:17.5)
-  * Automix End: 272.826s (4:32.8)
+  * Duration: ~367.5s (~6:07.5)
+  * Automix Start: ~17.475s (~0:17.5)
+  * Automix End: ~272.826s (~4:32.8)
+  * BPM: ~125.0
+  * Key Index: 15
 2. happysong
   * Artist: Imogen Heap
   * Title: The Happy Song
   * Apple Music ID: 15276055944141716431
-  * Duration: 158.0s (2:38)
+  * Duration: ~158.0s (~2:38)
   * Automix Start: none
   * Automix End: none
+  * BPM: ~82.0
+  * Key Index: 6
+3. just
+  * Artist: Bicep
+  * Title: Just (Original Mix)
+  * Apple Music ID: 14110461239496945263
+  * Duration: ~372.5s (~6:12.5)
+  * Automix Start: none
+  * Automix End: none
+  * BPM: ~120.0
+  * Key Index: 11
+4. luvmaschine
+  * Artist: Luvless
+  * Title: Luvmaschine (Original Mix)
+  * Apple Music ID: 16256298393022529679
+  * Duration: ~414.7s (~6:54.7)
+  * Automix Start: ~54.8s (~0:54.8)
+  * Automix End: ~378.9s (~6:18.9)
+  * BPM: ~114.0
+  * Key Index: 4
 
 ## Format description
 
