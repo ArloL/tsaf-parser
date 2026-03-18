@@ -87,9 +87,13 @@ Entity stream starts at offset **20**. Every entity begins with `0x2B`.
 - Form byte: `0x08` (verbose)
 - Entity type name: UTF-8 string, null-terminated
 - Fields follow immediately (see Field encoding below)
-- Entity body ends at `0x00` terminator, after which optional parent
-  cross-reference pairs (`0x05 id`) with id `< 0x10` may appear before the
-  next `0x2B` entity marker
+- Entity body ends with an explicit `0x00` terminator, after which optional
+  parent cross-reference pairs `0x05 id` (id `< 0x10`) may appear
+- A `0x2B` byte encountered inside a verbose entity body (before the `0x00`
+  terminator) introduces an **inline sub-entity** — a child entity parsed
+  recursively whose cross-reference IDs map it to a field of the parent.
+  The parent's body continues after all inline sub-entities and ends with
+  its own `0x00` terminator
 
 **Compact form** (subsequent occurrences of a type already seen in verbose form):
 ```
@@ -102,6 +106,10 @@ Entity stream starts at offset **20**. Every entity begins with `0x2B`.
 - Field ID: `0x10` + field_index — maps to the schema declared by the
   most recent verbose entity of that type
 - Field IDs `< 0x10` are parent cross-references, not data fields; skip them
+- Entity body ends with an explicit `0x00` terminator (after which optional
+  parent cross-reference pairs `0x05 id` with id `< 0x10` may appear),
+  **or** implicitly when the next `0x2B` entity marker is encountered
+  (compact entities inside a parent can terminate this way)
 
 #### Field encoding: VALUE before FIELD_NAME
 
@@ -116,9 +124,9 @@ then the value, then `0x08 + field name + 0x00`.
 #### Numeric alignment padding
 
 Numeric values (float32, int32, uint32 = 4 bytes; float64 = 8 bytes) are
-stored at absolute file offsets that are aligned to their byte width. The
-parser inserts zero-padding bytes between the type tag byte and the value
-to satisfy this alignment.
+stored at absolute file offsets that are aligned to their byte width.
+Zero-padding bytes appear between the type tag byte and the value to
+satisfy this alignment.
 
 Padding byte count for a value at cursor position `pos` (immediately after
 the type tag byte):
@@ -137,6 +145,7 @@ This is **not** an escape mechanism — the zeros are purely alignment padding.
 
 | type tag | type | format |
 |---|---|---|
+| `0x00` | absent/null sentinel | `00` — no value bytes |
 | `0x08` | null-terminated string | `08 [string] 00` |
 | `0x05` | int32 little-endian | `05 [pad] [4 bytes]` |
 | `0x0B` | collection | `0B [pad] [4B count]` followed by collection body |
@@ -153,15 +162,21 @@ This is **not** an escape mechanism — the zeros are purely alignment padding.
 Verbose entities serve two roles: schema-only declarations and data entities.
 
 **Schema-only** (no field values — lists field names for subsequent compact encoding):
+
+When multiple field names are declared, they are wrapped in a `0x0B`
+collection (see Collections below). A single trailing field name may
+appear as a standalone `0x08 + cstring` after the collection (as seen
+in `ADCMediaItemUserData`). The simplified form below only applies when
+a single field name is present:
 ```
 2B 08 EntityTypeName 00
-  08 fieldName1 00
-  08 fieldName2 00
-  ...
+  08 fieldName 00
   00
 ```
 Identified by: after reading `0x08 + string`, the next byte is NOT `0x08`.
-The string is a field name, not a string value.
+The string is a field name, not a string value. (When multiple schema names
+are needed, they appear inside a `0x0B` collection, avoiding the ambiguity
+of consecutive `0x08` strings.)
 
 **Data entity** (has actual field values):
 ```
@@ -174,8 +189,8 @@ The string is a field name, not a string value.
 Identified by: after reading a string value `0x08 + S + 0x00`, the next byte
 IS `0x08` (beginning of the field name marker).
 
-The first occurrence of each entity type registers its field name list as the
-schema for that type, enabling compact encoding in later occurrences.
+The first occurrence of each entity type establishes the field name list as
+the schema for that type, enabling compact encoding in later occurrences.
 
 #### Collections
 
@@ -184,8 +199,8 @@ determined by the first byte after the count:
 
 - `0x2B` → sub-entities; each starts with `0x2B` + form byte, parsed
   recursively
-- `0x08` → schema field-name strings; read `count` × (`0x08` + cstring);
-  registers field names for the current entity type
+- `0x08` → schema field-name strings; `count` × (`0x08` + cstring);
+  declares field names for the current entity type
 - `0x21` → Apple ID values; each is `0x21 0x08` + cstring (the Apple Music
   ID prefixed by `com.apple.iTunes:`)
 
@@ -202,9 +217,11 @@ Compact entities reference their verbose schema by field index:
 The schema field order is fixed by the order in which field names appear in
 the first verbose occurrence (or schema-only declaration) of each entity type.
 This ordering can differ between files for the same entity type — for example,
-`ADCCuePoint` in guiboratto declares `(time, number, endTime)` but in
-luvmaschine declares `(time, endTime, number)`. This shifts all field IDs
-beyond the first field.
+`ADCCuePoint` in guiboratto declares `(time, number)` but in luvmaschine
+declares `(time, endTime, number)`. The guiboratto schema does not include
+`endTime` — compact entities in that file reference field `0x12` (index 2)
+which is out of the declared schema range and receives no name. This shifts
+all field IDs beyond the first field.
 
 #### Apple ID extraction
 
@@ -224,18 +241,21 @@ uint64.
 | `ADCMediaItemLocation` | localMediaItemLocations | `uuid` (str), `titleIDs` (collection → `ADCMediaItemTitleID`), anonymous collection (Apple ID strings) |
 | `ADCMediaItemTitleID` | all files (nested or top-level) | `uuid` (str), `title` (str), `artist` (str), `duration` (float32, seconds) |
 | `ADCMediaItemAnalyzedData` | mediaItemAnalyzedData | `uuid` (str), `titleIDs` (collection → `ADCMediaItemTitleID`), `bpm` (float32), `keySignatureIndex` (uint8), `isStraightGrid` (boolean, not always present) |
-| `ADCMediaItemUserData` | mediaItemUserData | schema block declares field names (varies per file); `titleIDs` (anonymous collection → `ADCMediaItemTitleID`); `automixStartPoint`, `automixEndPoint`, `endPoint` (float32, only when cues present); `playCount`, `colorIndex`, `audioAlignmentFingerprint`, `userChangedCloudKeys` |
-| `ADCCuePoint` | mediaItemUserData | top-level sibling entities (not nested); `time` (float32, seconds), `endTime` (float32, -1.0 = absent), `number` (0x2E marker = 46); field order varies per file |
-| `ADCAudioAlignmentFingerprint` | mediaItemUserData | anonymous raw data block (0x15, zlib-compressed) |
+| `ADCMediaItemUserData` | mediaItemUserData | schema block declares field names (varies per file); `titleIDs` (anonymous collection → `ADCMediaItemTitleID`); `automixStartPoint`, `automixEndPoint`, `endPoint` (float32, only when cues present); `playCount`, `colorIndex`, `audioAlignmentFingerprint`, `userChangedCloudKeys`; inline children: `ADCCuePoint`, `ADCAudioAlignmentFingerprint` |
+| `ADCCuePoint` | mediaItemUserData (inline child of `ADCMediaItemUserData`) | cross-ref encodes `xref−2 = parent schema index` identifying which `ADCMediaItemUserData` field this entity provides; `time` (float32, seconds), `endTime` (float32, -1.0 = absent; declared in luvmaschine schema only), `number` (0x2E marker = 46 in guiboratto; float32 = -1.0 in luvmaschine when the 0x2E marker shifts to an unnamed index); field order and schema vary per file |
+| `ADCAudioAlignmentFingerprint` | mediaItemUserData (inline child of `ADCMediaItemUserData`) | anonymous raw data block (0x15, zlib-compressed) |
 
 All entity types carry a `uuid` field (hex string, 32 chars) that identifies
 the track consistently across files.
 
-#### ADCMediaItemUserData schema block
+#### ADCMediaItemUserData inline children
 
-`ADCMediaItemUserData` begins with a `0x0B` collection that declares field
-names for compact encoding (the `0x08`-item variant of the collection body).
-The field names present in this schema block vary per file:
+`ADCMediaItemUserData` contains inline sub-entities (`ADCCuePoint`,
+`ADCAudioAlignmentFingerprint`) within its body. After the `titleIDs`
+collection, inline children appear as `0x2B`-prefixed entities before the
+parent's final `0x00` terminator.
+
+The field names present in the schema block vary per file:
 
 | Field name | guiboratto | luvmaschine | just | happysong |
 |---|---|---|---|---|
@@ -248,64 +268,91 @@ The field names present in this schema block vary per file:
 | `titleIDs` | ✓ | ✓ | ✓ | — |
 | `userChangedCloudKeys` | ✓ | ✓ | ✓ | — |
 
-The `titleIDs` collection in this entity is **anonymous** (no name follows
-the collection in the binary — the next byte after the collection data is
-`0x2B`, the first cue entity marker, so no field name is read).
+The `titleIDs` collection in this entity is **anonymous** (no field name
+follows the collection in the binary). The `ADCMediaItemTitleID` inside it
+carries a cross-ref where `xref − 2` resolves to the `titleIDs` schema
+index, confirming it provides the `titleIDs` field (see Cross-reference IDs).
+
+#### Cross-reference IDs
+
+Entities that logically belong to a parent entity carry cross-reference bytes
+(`0x05 id`, id < 0x10). The ID encodes which **field of the parent** this
+child entity provides, using the formula:
+
+```
+parent_field_index = xref_id - 2
+```
+
+where `parent_field_index` is the 0-based index into the parent entity's
+schema name list. IDs 0 and 1 appear to be reserved. The IDs vary per file
+because the **schema name order** varies per file — but `xref - 2` always
+resolves to the correct field name.
+
+Example (guiboratto `ADCMediaItemUserData` schema):
+
+```
+index 0: uuid              (+ 2 = xref 2, reserved — never observed)
+index 1: automixStartPoint (+ 2 = xref 3) ← compact ADCCuePoint provides this
+index 2: playCount         (+ 2 = xref 4)
+index 3: audioAlignmentFingerprint (+ 2 = xref 5)
+index 4: titleIDs          (+ 2 = xref 6) ← ADCMediaItemTitleID provides this
+index 5: automixEndPoint   (+ 2 = xref 7) ← compact ADCCuePoint provides this
+index 6: endPoint          (+ 2 = xref 8) ← verbose ADCCuePoint provides this
+index 7: userChangedCloudKeys (+ 2 = xref 9)
+```
+
+Cross-refs on verbose entities appear **after** the `0x00` body terminator.
+Cross-refs on compact entities appear **inside** the field list as `0x05 id`
+where id < 0x10, interleaved with normal `0x05` field-separator bytes
+(which have id ≥ 0x10).
+
+`ADCAudioAlignmentFingerprint` does not carry an observed cross-ref; it may
+terminate differently or its cross-ref is not yet located.
 
 #### Automix cue times
 
-`ADCCuePoint` entities appear as **top-level siblings** of
-`ADCMediaItemUserData` in the entity stream — they are not nested inside it.
-`ADCMediaItemUserData` terminates with `0x00` followed by an optional
-cross-reference byte pair (`0x05 id`), after which the cue entities begin.
+`ADCCuePoint` entities appear as inline children of `ADCMediaItemUserData`.
+Each carries a cross-reference ID that encodes which field of the parent
+it provides (via `xref - 2 = schema_index`). The cross-ref — not whether
+the entity is verbose or compact — determines which field it maps to.
 
 The three cue-related fields (`automixStartPoint`, `automixEndPoint`,
 `endPoint`) are declared in the `ADCMediaItemUserData` schema block for tracks
 that have automix set. Tracks without automix (happysong, just) have no
 `ADCCuePoint` entities and these fields are absent from the schema.
 
-`endPoint` equals `automixEndPoint` in all observed data.
-
-The cue field values are extracted from the `ADCCuePoint` float values:
-- `automixStartPoint` = minimum float value across all cue entities
-- `automixEndPoint` = `endPoint` = maximum float value across all cue entities
-
-The `ADCCuePoint` field order varies between files:
-- guiboratto: `(time, number, endTime)` — schema IDs `0x10`, `0x11`, `0x12`
-- luvmaschine: `(time, endTime, number)` — schema IDs `0x10`, `0x11`, `0x12`
-
-The compact form omits the first schema field when it matches the automix end
-time, and encodes the automix start time in the first field present. Because
-field order differs per file, the field ID carrying the start time differs:
-- guiboratto compact start → field `0x10` (`time`)
-- luvmaschine compact start → field `0x11` (`endTime`, `time` is omitted)
+The `ADCCuePoint` schema varies per file:
+- guiboratto: `(time, number)` — IDs `0x10`, `0x11`; field `0x12` (index 2) is out of schema range
+- luvmaschine: `(time, endTime, number)` — IDs `0x10`, `0x11`, `0x12`
 
 #### ADCCuePoint compact encoding example — guiboratto
 
-Schema order: `(time, number, endTime)` → IDs `0x10`, `0x11`, `0x12`
+Schema order: `(time, number)` → IDs `0x10`, `0x11`; index 2 (`0x12`) unnamed
 
-Compact entity encoding the automix start time 17.475s:
+Compact entity providing `automixStartPoint` (xref 3 → schema index 1):
 ```
 2B 05                    -- entity marker + compact form
-   10 13 [pad] [4B]      -- field 0x10 (time):   float32 = 17.475
-   05 11 2E              -- field 0x11 (number):  0x2E = 46
-   05 12 00              -- field 0x12 (endTime): 0 (absent)
-   00                    -- entity terminator
+   10 13 [pad] [4B]      -- field 0x10 (time):    float32 = 17.475
+   05 11 2E              -- field 0x11 (number):   0x2E = 46
+   05 12 00              -- field 0x12 (unnamed):  type 0x00 = 0 (absent)
+   05 03                 -- cross-ref id=3 (3-2=1 → automixStartPoint)
+                         -- terminates on 0x2B (next inline sibling)
 ```
 
 #### ADCCuePoint compact encoding example — luvmaschine
 
-Schema order: `(time, endTime, number)` → IDs `0x10`, `0x11`, `0x12`
+Schema order: `(time, endTime, number)` → IDs `0x10`, `0x11`, `0x12`; indices 3+ unnamed
 
-Compact entity encoding the automix start time 54.735s:
+Compact entity providing `automixStartPoint` (xref 8 → schema index 6):
 ```
 2B 05                    -- entity marker + compact form
-   11 13 [pad] [4B]      -- field 0x11 (endTime): float32 = 54.735
-   05 12 13 [pad] [4B]   -- field 0x12 (number):  float32 = -1.0
-   05 00                 -- cross-ref (id < 0x10), skipped
-   2E                    -- 0x2E type tag (value = 46, no bytes)
-   00                    -- entity terminator
+   11 13 [pad] [4B]      -- field 0x11 (endTime):  float32 = 54.735
+   05 12 13 [pad] [4B]   -- field 0x12 (number):   float32 = -1.0
+   05 13 2E              -- field 0x13 (unnamed):   0x2E = 46
+   05 14 00              -- field 0x14 (unnamed):   type 0x00 = 0
+   05 08                 -- cross-ref id=8 (8-2=6 → automixStartPoint)
+                         -- terminates on 0x2B (next inline sibling)
 ```
 
-Note that `time` (field `0x10`) is absent from the compact form entirely —
-the verbose entity for this file's end-of-automix stores the same value.
+Note that `time` (field `0x10`) is absent — the verbose `ADCCuePoint` in this
+file provides `endPoint` and carries the end-of-automix time in its `time` field.

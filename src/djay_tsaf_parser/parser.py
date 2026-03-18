@@ -54,6 +54,14 @@ class MediaItemUserData:
     end_point: float | None
 
 
+def _cue_time(entity: VerboseEntity | CompactEntity | None) -> float | None:
+    """Extract the time value from an ADCCuePoint entity."""
+    if not isinstance(entity, (VerboseEntity, CompactEntity)):
+        return None
+    fm = {f.name: f.value for f in entity.fields}
+    return fm.get("time") or fm.get("endTime")
+
+
 # ---------------------------------------------------------------------------
 # Convenience parsers
 # ---------------------------------------------------------------------------
@@ -181,16 +189,11 @@ def parse_media_item_user_data(data: bytes) -> MediaItemUserData:
     """Parse all known fields from a mediaItemUserData TSAF blob.
 
     Structure: ADCMediaItemUserData (uuid, anonymous collection → ADCMediaItemTitleID)
-      Top-level ADCCuePoint entities carry automix times.
+      ADCCuePoint entities follow, each carrying a cross-reference ID that
+      maps it to a specific ADCMediaItemUserData field (automixStartPoint,
+      automixEndPoint, or endPoint).
 
-    Automix cue times are extracted from ``ADCCuePoint`` entities:
-
-    - ``automix_start_point``: first float value from the first compact
-      ``ADCCuePoint``
-    - ``automix_end_point``: largest float value across all ``ADCCuePoint``
-      entities
-
-    Both are ``None`` when no cue points are present.
+    All cue fields are ``None`` when no cue points are present.
 
     Args:
         data: Raw binary content of a mediaItemUserData TSAF file.
@@ -226,7 +229,7 @@ def parse_media_item_user_data(data: bytes) -> MediaItemUserData:
             if isinstance(e, (VerboseEntity, CompactEntity))
             for tid in [{f.name: f.value for f in e.fields}]
         ],
-        automix_start_point=fm.get("automixStartPoint"),
-        automix_end_point=fm.get("automixEndPoint"),
-        end_point=fm.get("endPoint"),
+        automix_start_point=_cue_time(fm.get("automixStartPoint")),
+        automix_end_point=_cue_time(fm.get("automixEndPoint")),
+        end_point=_cue_time(fm.get("endPoint")),
     )

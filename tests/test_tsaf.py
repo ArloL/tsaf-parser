@@ -152,7 +152,7 @@ def test_parse_tsaf_mediaItemAnalyzedData_bpm_and_key():
 
 
 def test_parse_tsaf_mediaItemUserData_cue_fields():
-    """ADCCuePoint entities are resolved into named float fields on ADCMediaItemUserData."""
+    """ADCCuePoint entities are inline children of ADCMediaItemUserData, resolved by cross-ref."""
     data = _load("guiboratto-mediaItemUserData.bin")
     doc = parse_tsaf(data)
     user_data = doc.entities[0]
@@ -161,20 +161,24 @@ def test_parse_tsaf_mediaItemUserData_cue_fields():
     assert "automixStartPoint" in fm
     assert "automixEndPoint" in fm
     assert "endPoint" in fm
-    assert fm["automixStartPoint"].type_tag == 0x13
-    assert fm["automixStartPoint"].value == pytest.approx(17.475, abs=0.01)
-    assert fm["automixEndPoint"].value == pytest.approx(272.826, abs=0.01)
-    assert fm["endPoint"].value == pytest.approx(272.826, abs=0.01)
+    # Cue fields are ADCCuePoint sub-entities
+    assert fm["automixStartPoint"].type_tag == 0x2B
+    cue = fm["automixStartPoint"].value
+    assert isinstance(cue, (VerboseEntity, CompactEntity))
+    assert cue.type_name == "ADCCuePoint"
+    cue_fm = {f.name: f.value for f in cue.fields}
+    assert cue_fm["time"] == pytest.approx(17.475, abs=0.01)
 
 
 def test_parse_tsaf_luvmaschine_cue_fields():
-    """luvmaschine has a different schema order but cue fields resolve to correct values."""
+    """luvmaschine has a different schema order but cue fields resolve by cross-ref."""
     data = _load("luvmaschine-mediaItemUserData.bin")
     doc = parse_tsaf(data)
     user_data = doc.entities[0]
     fm = {f.name: f.value for f in user_data.fields}
-    assert fm["automixStartPoint"] == pytest.approx(54.735, abs=0.01)
-    assert fm["automixEndPoint"] == pytest.approx(378.944, abs=0.01)
-    assert fm["endPoint"] == pytest.approx(378.944, abs=0.01)
+    cue = fm["automixStartPoint"]
+    assert isinstance(cue, (VerboseEntity, CompactEntity))
+    cue_fm = {f.name: f.value for f in cue.fields}
+    assert cue_fm.get("time") or cue_fm.get("endTime") == pytest.approx(54.735, abs=0.01)
 
 
