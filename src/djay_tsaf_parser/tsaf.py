@@ -275,8 +275,10 @@ def _read_typed_value(r: _Reader, type_tag: int) -> str | float | int | bytes | 
         return struct.unpack("<d", r.read_numeric(8))[0]
     if type_tag == 0x0F:
         return r.read_byte()
+    if type_tag == 0x2D:
+        return 1  # compact integer 1; no further bytes (best guess)
     if type_tag == 0x2E:
-        return 0x2E  # self-value; no further bytes
+        return 0  # compact integer 0; no further bytes (best guess)
     if type_tag == 0x0D:
         return True  # boolean flag; no further bytes
     if type_tag == 0x00:
@@ -374,7 +376,7 @@ def _parse_verbose_entity(
             else:
                 schema_names.append(s)  # schema declaration; no value
 
-        elif type_tag == 0x0B:
+        elif type_tag in (0x0B, 0x1A):
             count = struct.unpack("<I", r.read_numeric(4))[0]
             sub_items, names = _parse_collection_body(r, count, schema_registry)
             if names:

@@ -113,7 +113,7 @@ def parse_local_media_item_location(data: bytes) -> LocalMediaItemLocation:
     return LocalMediaItemLocation(
         apple_music_id=int(digits),
         title=tid["title"],
-        artist=tid["artist"],
+        artist=tid.get("artist", ""),
         duration=float(tid["duration"]),
     )
 
@@ -139,7 +139,7 @@ def parse_media_item_title_id(data: bytes) -> MediaItemTitleID:
     tid = {f.name: f.value for f in title_id.fields}
     return MediaItemTitleID(
         title=tid["title"],
-        artist=tid["artist"],
+        artist=tid.get("artist", ""),
         duration=float(tid["duration"]),
     )
 
@@ -173,7 +173,7 @@ def parse_media_item_analyzed_data(data: bytes) -> MediaItemAnalyzedData:
         title_ids=[
             MediaItemTitleID(
                 title=tid["title"],
-                artist=tid["artist"],
+                artist=tid.get("artist", ""),
                 duration=float(tid["duration"]),
             )
             for e in title_ids_field.value
@@ -222,7 +222,7 @@ def parse_media_item_user_data(data: bytes) -> MediaItemUserData:
         title_ids=[
             MediaItemTitleID(
                 title=tid["title"],
-                artist=tid["artist"],
+                artist=tid.get("artist", ""),
                 duration=float(tid["duration"]),
             )
             for e in title_id_collection
