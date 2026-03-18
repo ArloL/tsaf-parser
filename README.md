@@ -99,7 +99,7 @@ Entity stream starts at offset **20**. Every entity begins with `0x2B`.
 
 **Compact form** (subsequent occurrences of a type already seen in verbose form):
 ```
-2B 05 FieldID TypeTag Value [05 FieldID TypeTag Value]...  00
+2B 05 FieldID TypeTag Value [05 FieldID TypeTag Value]...  [00]
 ```
 
 - Form byte: `0x05` (compact)
@@ -148,7 +148,7 @@ This is **not** an escape mechanism — the zeros are purely alignment padding.
 | type tag | type | format |
 |---|---|---|
 | `0x00` | absent/null sentinel | `00` — no value bytes; value = 0 |
-| `0x05` | int32 little-endian | `05 [pad] [4 bytes]` |
+| `0x05` | int32 little-endian (sign unconfirmed — all observed values are non-negative; verbose-entity parser uses signed, compact-entity parser uses unsigned) | `05 [pad] [4 bytes]` |
 | `0x08` | null-terminated string | `08 [string] 00` |
 | `0x0B` | collection | `0B [pad] [4B count]` followed by collection body |
 | `0x0D` | boolean flag | `0D` — implicit true; no value bytes |
@@ -255,7 +255,7 @@ uint64.
 | `ADCMediaItemTitleID` | all files (nested or top-level) | `uuid` (str), `title` (str), `artist` (str, may be absent for tracks without artist metadata e.g. YouTube imports), `duration` (float32, seconds) |
 | `ADCMediaItemAnalyzedData` | mediaItemAnalyzedData | `uuid` (str), `titleIDs` (collection → `ADCMediaItemTitleID`), `bpm` (float32), `keySignatureIndex` (uint8 `0x0F` or compact integer `0x2D`/`0x2E`), `isStraightGrid` (boolean, not always present) |
 | `ADCMediaItemUserData` | mediaItemUserData | schema block declares field names (varies per file); `titleIDs` (anonymous collection → `ADCMediaItemTitleID`); `automixStartPoint`, `automixEndPoint`, `endPoint` (float32, only when cues present); `playCount`, `colorIndex`, `audioAlignmentFingerprint`, `userChangedCloudKeys`; inline children: `ADCCuePoint`, `ADCAudioAlignmentFingerprint` |
-| `ADCCuePoint` | mediaItemUserData (inline child of `ADCMediaItemUserData`) | cross-ref encodes `xref−2 = parent schema index` identifying which `ADCMediaItemUserData` field this entity provides; `time` (float32, seconds), `endTime` (float32, -1.0 = absent; declared in luvmaschine schema only), `number` (compact integer 0 via `0x2E` in guiboratto; float32 = -1.0 in luvmaschine when the compact tag shifts to an unnamed index); field order and schema vary per file |
+| `ADCCuePoint` | mediaItemUserData (inline child of `ADCMediaItemUserData`) | cross-ref encodes `xref−2 = parent schema index` identifying which `ADCMediaItemUserData` field this entity provides; `time` (float32, seconds), `endTime` (float32, -1.0 = absent; declared in luvmaschine schema only), `number` (compact integer 0 via `0x2E` in guiboratto at field `0x11`; float32 = -1.0 in luvmaschine at field `0x12` — the named `number` field at schema index 2; the unnamed extra fields beyond the schema are `0x13` and `0x14`); field order and schema vary per file |
 | `ADCAudioAlignmentFingerprint` | mediaItemUserData (inline child of `ADCMediaItemUserData`) | anonymous raw data block (0x15, zlib-compressed) |
 
 All entity types carry a `uuid` field (hex string, 32 chars) that identifies
@@ -310,7 +310,7 @@ cross-ref ID space reserves two slots before the schema field indices:
 |---|---|---|
 | 0 | Reserved / null | Never observed in any file |
 | 1 | Collection membership marker? | Always present (pre-field) on `ADCMediaItemTitleID` sub-entities inside collections; never on inline children (`ADCCuePoint`) or top-level entities. Purpose unclear |
-| 2 | First schema field (always `uuid`) | Always present (pre-field) on `ADCMediaItemTitleID` sub-entities. When an entity appears as a sub-entity it **omits** its own `uuid` field — this xref may indicate it inherits/shares the parent's UUID |
+| 2 | UUID inheritance marker (pre-field only in observed data) | Always present as a **pre-field** xref on `ADCMediaItemTitleID` sub-entities. Applying the `xref − 2` formula gives schema index 0 = `uuid`, but in the pre-field position this is best understood as entity-level metadata (UUID inheritance), not as a parent field binding — consistent with the fact that pre-field xrefs 1 and 2 are described in the structural-positions section as metadata rather than bindings. Sub-entities that carry this xref omit their own `uuid` field; the xref likely signals that they share the parent's UUID |
 | 3+ | Subsequent schema fields | Used for parent field binding (e.g. `titleIDs`, `automixStartPoint`, `endPoint`) |
 
 Cross-refs also appear in **two structural positions** within an entity,
@@ -318,10 +318,13 @@ which may have different semantics (best guess — this is not confirmed):
 
 - **Pre-field** (right after the type name, before data fields): IDs 1
   and 2 — found on collection sub-entities (`ADCMediaItemTitleID`).
-  These may be entity-level metadata rather than parent field bindings.
+  These are entity-level metadata, not parent field bindings. Pre-field
+  xref=2 specifically serves as a UUID inheritance marker (see table above);
+  pre-field xref=1 marks collection membership. Neither encodes a parent
+  field assignment.
 - **Post-terminator** (after the `0x00` body terminator): IDs 2+ — found on
   both collection sub-entities and inline children. These encode parent
-  field bindings.
+  field bindings (using `xref − 2 = schema_index`).
 
 When resolving a sub-entity's parent field, only cross-ref IDs that fall
 within the parent's schema range (i.e. `0 <= xref - 2 < schema_length`)
@@ -405,8 +408,13 @@ Compact entity providing `automixStartPoint` (xref 8 → schema index 6):
                          -- terminates on 0x2B (next inline sibling)
 ```
 
-Note that `time` (field `0x10`) is absent — the verbose `ADCCuePoint` in this
-file provides `endPoint` and carries the end-of-automix time in its `time` field.
+In luvmaschine, compact `ADCCuePoint` entities store the cue time in `endTime`
+(field `0x11`) and leave `time` (field `0x10`) absent. The verbose `ADCCuePoint`
+(which provides `endPoint`) is the opposite: it stores its time in `time` and
+has `endTime = -1.0` (absent sentinel). The reason for this asymmetry is unknown
+— possibly `time` and `endTime` carry different semantics in the app (e.g. loop
+start vs loop end, or in-cue vs out-cue), but no negative evidence has been
+found to confirm this.
 
 #### Observations from bulk data (~8,000 tracks)
 
