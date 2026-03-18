@@ -3,3 +3,5 @@
 __pycache__/
 
 # Add custom entries after this line to be preserved during automated updates
+
+data/bin/
