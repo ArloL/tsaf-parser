@@ -54,6 +54,7 @@ class VerboseEntity:
 
     type_name: str
     fields: list[TSAFField] = field(default_factory=list)
+    cross_refs: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -65,6 +66,7 @@ class CompactEntity:
 
     type_name: str
     fields: list[TSAFField] = field(default_factory=list)
+    cross_refs: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -157,10 +159,13 @@ class _Reader:
 # ---------------------------------------------------------------------------
 
 
-def _skip_cross_refs(r: _Reader) -> None:
-    """Skip any parent cross-reference pairs (0x05, id<0x10) at current position."""
+def _read_cross_refs(r: _Reader) -> list[int]:
+    """Read parent cross-reference pairs (0x05, id<0x10) at current position."""
+    refs: list[int] = []
     while r.remaining >= 2 and r.peek(2)[0] == 0x05 and r.peek(2)[1] < 0x10:
-        r.read(2)
+        r.read_byte()  # consume 0x05
+        refs.append(r.read_byte())
+    return refs
 
 
 def _parse_header(r: _Reader) -> TSAFHeader:
@@ -175,7 +180,11 @@ def _parse_header(r: _Reader) -> TSAFHeader:
     return TSAFHeader(magic=magic, version=version, entity_count=entity_count, unknown=unknown)
 
 
-def _parse_sub_entity(r: _Reader, schema_registry: dict[str, list[str]]) -> TSAFEntity:
+def _parse_sub_entity(
+    r: _Reader,
+    schema_registry: dict[str, list[str]],
+    last_verbose_type: str = "",
+) -> TSAFEntity:
     """Parse one entity that starts with 0x2B inside a collection field."""
     marker = r.read_byte()
     if marker != 0x2B:
@@ -184,8 +193,7 @@ def _parse_sub_entity(r: _Reader, schema_registry: dict[str, list[str]]) -> TSAF
     if form == 0x08:
         return _parse_verbose_entity(r, schema_registry)
     elif form == 0x05:
-        # Compact sub-entity: type resolved from registry with empty fallback
-        return _parse_compact_entity_body(r, schema_registry, "")
+        return _parse_compact_entity_body(r, schema_registry, last_verbose_type)
     else:
         return _parse_raw_entity(r, form)
 
@@ -218,10 +226,14 @@ def _parse_collection_body(
     if first == 0x2B:
         # Sub-entities
         sub: list[TSAFEntity] = []
+        last_verbose_type = ""
         for _ in range(count):
             if r.remaining == 0 or r.peek()[0] != 0x2B:
                 break
-            sub.append(_parse_sub_entity(r, schema_registry))
+            entity = _parse_sub_entity(r, schema_registry, last_verbose_type)
+            if isinstance(entity, VerboseEntity):
+                last_verbose_type = entity.type_name
+            sub.append(entity)
         return sub, []
 
     if first == 0x21:
@@ -275,6 +287,26 @@ def _read_typed_value(r: _Reader, type_tag: int) -> str | float | int | bytes | 
     return _UNRECOGNISED
 
 
+
+def _resolve_inline_sub_entity(
+    sub: VerboseEntity | CompactEntity,
+    schema_names: list[str],
+) -> TSAFField:
+    """Convert an inline sub-entity into a field on the parent entity.
+
+    Uses the sub-entity's cross-refs to resolve the parent field name via
+    ``xref - 2 = schema_index``.  The sub-entity is stored as-is.
+    """
+    field_name: str | None = None
+    for xref_id in sub.cross_refs:
+        field_idx = xref_id - 2
+        if 0 <= field_idx < len(schema_names):
+            field_name = schema_names[field_idx]
+            break
+
+    return TSAFField(name=field_name, value=sub, type_tag=0x2B)
+
+
 def _parse_verbose_entity(
     r: _Reader,
     schema_registry: dict[str, list[str]],
@@ -284,6 +316,10 @@ def _parse_verbose_entity(
     Handles both schema-declaration entities (field names only, no values) and
     data entities (type-tag + value + field-name triples).
 
+    When a 0x2B entity marker is encountered inside the body, it is parsed as
+    an inline sub-entity (a child of this entity).  The sub-entity's cross-refs
+    determine which parent field it provides.
+
     Disambiguation rule for strings (type tag 0x08): after reading the string S,
     peek at the next byte:
       • next == 0x08  →  S is a field VALUE; the following 0x08+cstring is the name.
@@ -292,21 +328,30 @@ def _parse_verbose_entity(
     type_name = r.read_cstring()
     fields: list[TSAFField] = []
     schema_names: list[str] = []
+    cross_refs: list[int] = []
+    last_inline_verbose_type = ""
 
     while r.remaining > 0:
         b = r.peek()[0]
 
         if b == 0x2B:
-            break  # next entity starts here
+            # Inline sub-entity (e.g. ADCCuePoint, ADCAudioAlignmentFingerprint)
+            sub = _parse_sub_entity(r, schema_registry, last_inline_verbose_type)
+            if isinstance(sub, VerboseEntity):
+                last_inline_verbose_type = sub.type_name
+            if isinstance(sub, (VerboseEntity, CompactEntity)):
+                fields.append(_resolve_inline_sub_entity(sub, schema_names))
+            continue
 
         if b == 0x00:
             r.read_byte()
-            _skip_cross_refs(r)
+            cross_refs.extend(_read_cross_refs(r))
             break
 
         # Parent cross-reference: 0x05 followed by id < 0x10
         if b == 0x05 and r.remaining >= 2 and r.peek(2)[1] < 0x10:
-            r.read(2)
+            r.read_byte()  # consume 0x05
+            cross_refs.append(r.read_byte())
             continue
 
         type_tag = r.read_byte()
@@ -324,20 +369,20 @@ def _parse_verbose_entity(
 
         elif type_tag == 0x0B:
             count = struct.unpack("<I", r.read_numeric(4))[0]
-            sub, names = _parse_collection_body(r, count, schema_registry)
+            sub_items, names = _parse_collection_body(r, count, schema_registry)
             if names:
                 schema_names.extend(names)
             else:
                 field_name = _read_field_name(r)
-                fields.append(TSAFField(name=field_name, value=sub, type_tag=0x0B))
+                fields.append(TSAFField(name=field_name, value=sub_items, type_tag=0x0B))
                 if field_name:
                     schema_names.append(field_name)
 
         elif type_tag == 0x05:
-            # Stray cross-ref (already consumed 0x05; skip ref_id) or int32 data field
+            # Cross-ref (already consumed 0x05; collect ref_id) or int32 data field
             next_b = r.peek()[0] if r.remaining > 0 else 0x00
             if next_b < 0x10:
-                r.read_byte()
+                cross_refs.append(r.read_byte())
                 continue
             value = struct.unpack("<i", r.read_numeric(4))[0]
             field_name = _read_field_name(r)
@@ -357,7 +402,7 @@ def _parse_verbose_entity(
     if schema_names and type_name not in schema_registry:
         schema_registry[type_name] = schema_names
 
-    return VerboseEntity(type_name=type_name, fields=fields)
+    return VerboseEntity(type_name=type_name, fields=fields, cross_refs=cross_refs)
 
 
 def _parse_compact_entity_body(
@@ -373,6 +418,7 @@ def _parse_compact_entity_body(
     """
     schema_fields = schema_registry.get(type_name, [])
     fields: list[TSAFField] = []
+    cross_refs: list[int] = []
 
     def _read_value(type_tag: int) -> str | float | int | bytes | None:
         if type_tag in (0x05, 0x0B):
@@ -385,7 +431,7 @@ def _parse_compact_entity_body(
         return schema_fields[idx] if 0 <= idx < len(schema_fields) else None
 
     if r.remaining == 0:
-        return CompactEntity(type_name=type_name, fields=fields)
+        return CompactEntity(type_name=type_name, fields=fields, cross_refs=cross_refs)
 
     # First field ID is read directly (no preceding 0x05 separator)
     first_id = r.read_byte()
@@ -400,7 +446,7 @@ def _parse_compact_entity_body(
             break
         if b == 0x00:
             r.read_byte()
-            _skip_cross_refs(r)
+            cross_refs.extend(_read_cross_refs(r))
             break
         if b != 0x05:
             break
@@ -409,13 +455,14 @@ def _parse_compact_entity_body(
             break
         field_id = r.read_byte()
         if field_id < 0x10:
-            continue  # cross-reference to parent entity; skip
+            cross_refs.append(field_id)
+            continue
         if r.remaining == 0:
             break
         type_tag = r.read_byte()
         fields.append(TSAFField(name=_field_name(field_id), value=_read_value(type_tag), type_tag=type_tag))
 
-    return CompactEntity(type_name=type_name, fields=fields)
+    return CompactEntity(type_name=type_name, fields=fields, cross_refs=cross_refs)
 
 
 def _parse_raw_entity(r: _Reader, form_byte: int) -> RawEntity:
@@ -471,64 +518,6 @@ def parse_tsaf(data: bytes) -> TSAFDocument:
             entity = _parse_raw_entity(r, form)
             entities.append(entity)
 
-    _resolve_user_data_cue_points(entities, schema_registry)
     return TSAFDocument(header=header, entities=entities)
-
-
-_CUE_FIELD_NAMES = {"automixStartPoint", "automixEndPoint", "endPoint"}
-
-
-def _resolve_user_data_cue_points(
-    entities: list[TSAFEntity],
-    schema_registry: dict[str, list[str]],
-) -> None:
-    """Attach ADCCuePoint entities to ADCMediaItemUserData as named float fields.
-
-    Uses the ADCMediaItemUserData schema to determine which cue-point fields are
-    present, maps the minimum cue time to automixStartPoint and the maximum to
-    automixEndPoint / endPoint, then removes the ADCCuePoint entities from the
-    top-level entity list.
-    """
-    user_data_idx = next(
-        (
-            i for i, e in enumerate(entities)
-            if isinstance(e, VerboseEntity) and e.type_name == "ADCMediaItemUserData"
-        ),
-        None,
-    )
-    if user_data_idx is None:
-        return
-
-    user_data = entities[user_data_idx]
-    schema = schema_registry.get("ADCMediaItemUserData", [])
-    present_cue_fields = [name for name in schema if name in _CUE_FIELD_NAMES]
-    if not present_cue_fields:
-        return
-
-    cue_indices = [
-        i for i in range(user_data_idx + 1, len(entities))
-        if isinstance(entities[i], (VerboseEntity, CompactEntity))
-        and "CuePoint" in entities[i].type_name  # type: ignore[union-attr]
-    ]
-    if not cue_indices:
-        return
-
-    times = [
-        next((f.value for f in entities[i].fields if isinstance(f.value, float) and f.value >= 0), None)  # type: ignore[union-attr]
-        for i in cue_indices
-    ]
-    valid_times = [t for t in times if t is not None]
-    if not valid_times:
-        return
-
-    min_t = min(valid_times)
-    max_t = max(valid_times)
-
-    for field_name in present_cue_fields:
-        value = min_t if field_name == "automixStartPoint" else max_t
-        user_data.fields.append(TSAFField(name=field_name, value=value, type_tag=0x13))
-
-    for i in sorted(cue_indices, reverse=True):
-        entities.pop(i)
 
 
