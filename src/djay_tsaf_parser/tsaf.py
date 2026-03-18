@@ -430,8 +430,10 @@ def _parse_compact_entity_body(
     cross_refs: list[int] = []
 
     def _read_value(type_tag: int) -> str | float | int | bytes | None:
-        if type_tag in (0x05, 0x0B):
-            return struct.unpack("<I", r.read_numeric(4))[0]
+        if type_tag == 0x05:
+            return struct.unpack("<i", r.read_numeric(4))[0]  # signed, matches verbose parser
+        if type_tag == 0x0B:
+            return struct.unpack("<I", r.read_numeric(4))[0]  # unsigned count
         v = _read_typed_value(r, type_tag)
         return None if v is _UNRECOGNISED else v
 
