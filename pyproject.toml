@@ -7,7 +7,7 @@ name = "djay-tsaf-parser"
 version = "0.1.0"
 description = "DJAY TSAF Parser"
 readme = "README.md"
-requires-python = "==3.11.15"
+requires-python = "==3.11.14"
 dependencies = [
 ]
 
