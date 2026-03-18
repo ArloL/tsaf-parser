@@ -175,7 +175,7 @@ def test_parse_header_invalid_magic_raises():
 
 - Test data is stored in `/data` directory
 - Binary blobs are named with pattern: `<song>_<column>.bin`
-- Document format findings in README.md if they are new discoveries
+- Document format findings in TSAF.md if they are new discoveries
 
 ## Project Structure
 
