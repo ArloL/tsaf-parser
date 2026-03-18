@@ -24,7 +24,7 @@ def _load(filename: str) -> bytes:
 
 
 def test_parse_local_media_item_location_guiboratto():
-    data = _load("guiboratto-localMediaItemLocations.bin")
+    data = _load("d8a452ad23698cb4076d1baed024844b-localMediaItemLocations.bin")
     result = parse_local_media_item_location(data)
     assert result.apple_music_id == 8986230555104447322
     assert result.title == "Arquipelago (Original Mix)"
@@ -33,7 +33,7 @@ def test_parse_local_media_item_location_guiboratto():
 
 
 def test_parse_local_media_item_location_happysong():
-    data = _load("happysong-localMediaItemLocations.bin")
+    data = _load("f6fa142fbda6a56deb6dfa71dbef389e-localMediaItemLocations.bin")
     result = parse_local_media_item_location(data)
     assert result.apple_music_id == 15276055944141716431
     assert result.title == "The Happy Song"
@@ -42,7 +42,7 @@ def test_parse_local_media_item_location_happysong():
 
 
 def test_parse_local_media_item_location_luvmaschine():
-    data = _load("luvmaschine-localMediaItemLocations.bin")
+    data = _load("df6376b59fbc6e4fd56d55f3e64b5d2e-localMediaItemLocations.bin")
     result = parse_local_media_item_location(data)
     assert result.apple_music_id == 16256298393022529679
     assert result.title == "Luvmaschine Original Mix"
@@ -51,7 +51,7 @@ def test_parse_local_media_item_location_luvmaschine():
 
 
 def test_parse_local_media_item_location_just():
-    data = _load("just-localMediaItemLocations.bin")
+    data = _load("dc11bf9b77216b8c5f295030613d72f1-localMediaItemLocations.bin")
     result = parse_local_media_item_location(data)
     assert result.apple_music_id == 14110461239496945263
     assert result.title == "Just (Original Mix)"
@@ -65,7 +65,7 @@ def test_parse_local_media_item_location_just():
 
 
 def test_parse_media_item_title_id_guiboratto():
-    data = _load("guiboratto-mediaItemTitleIDs.bin")
+    data = _load("d8a452ad23698cb4076d1baed024844b-mediaItemTitleIDs.bin")
     result = parse_media_item_title_id(data)
     assert result.title == "Arquipelago (Original Mix)"
     assert result.artist == "Gui Boratto"
@@ -73,7 +73,7 @@ def test_parse_media_item_title_id_guiboratto():
 
 
 def test_parse_media_item_title_id_happysong():
-    data = _load("happysong-mediaItemTitleIDs.bin")
+    data = _load("f6fa142fbda6a56deb6dfa71dbef389e-mediaItemTitleIDs.bin")
     result = parse_media_item_title_id(data)
     assert result.title == "The Happy Song"
     assert result.artist == "Imogen Heap"
@@ -81,7 +81,7 @@ def test_parse_media_item_title_id_happysong():
 
 
 def test_parse_media_item_title_id_luvmaschine():
-    data = _load("luvmaschine-mediaItemTitleIDs.bin")
+    data = _load("df6376b59fbc6e4fd56d55f3e64b5d2e-mediaItemTitleIDs.bin")
     result = parse_media_item_title_id(data)
     assert result.title == "Luvmaschine Original Mix"
     assert result.artist == "Luvless"
@@ -89,7 +89,7 @@ def test_parse_media_item_title_id_luvmaschine():
 
 
 def test_parse_media_item_title_id_just():
-    data = _load("just-mediaItemTitleIDs.bin")
+    data = _load("dc11bf9b77216b8c5f295030613d72f1-mediaItemTitleIDs.bin")
     result = parse_media_item_title_id(data)
     assert result.title == "Just (Original Mix)"
     assert result.artist == "Bicep"
@@ -102,7 +102,7 @@ def test_parse_media_item_title_id_just():
 
 
 def test_parse_media_item_analyzed_data_guiboratto():
-    data = _load("guiboratto-mediaItemAnalyzedData.bin")
+    data = _load("d8a452ad23698cb4076d1baed024844b-mediaItemAnalyzedData.bin")
     result = parse_media_item_analyzed_data(data)
     assert len(result.title_ids) == 1
     assert result.title_ids[0].title == "Arquipelago (Original Mix)"
@@ -113,7 +113,7 @@ def test_parse_media_item_analyzed_data_guiboratto():
 
 
 def test_parse_media_item_analyzed_data_happysong():
-    data = _load("happysong-mediaItemAnalyzedData.bin")
+    data = _load("f6fa142fbda6a56deb6dfa71dbef389e-mediaItemAnalyzedData.bin")
     result = parse_media_item_analyzed_data(data)
     assert result.title_ids[0].title == "The Happy Song"
     assert result.title_ids[0].artist == "Imogen Heap"
@@ -123,7 +123,7 @@ def test_parse_media_item_analyzed_data_happysong():
 
 
 def test_parse_media_item_analyzed_data_luvmaschine():
-    data = _load("luvmaschine-mediaItemAnalyzedData.bin")
+    data = _load("df6376b59fbc6e4fd56d55f3e64b5d2e-mediaItemAnalyzedData.bin")
     result = parse_media_item_analyzed_data(data)
     assert result.title_ids[0].title == "Luvmaschine Original Mix"
     assert result.title_ids[0].artist == "Luvless"
@@ -133,7 +133,7 @@ def test_parse_media_item_analyzed_data_luvmaschine():
 
 
 def test_parse_media_item_analyzed_data_just():
-    data = _load("just-mediaItemAnalyzedData.bin")
+    data = _load("dc11bf9b77216b8c5f295030613d72f1-mediaItemAnalyzedData.bin")
     result = parse_media_item_analyzed_data(data)
     assert result.title_ids[0].title == "Just (Original Mix)"
     assert result.title_ids[0].artist == "Bicep"
@@ -148,7 +148,7 @@ def test_parse_media_item_analyzed_data_just():
 
 
 def test_parse_media_item_user_data_guiboratto():
-    data = _load("guiboratto-mediaItemUserData.bin")
+    data = _load("d8a452ad23698cb4076d1baed024844b-mediaItemUserData.bin")
     result = parse_media_item_user_data(data)
     assert len(result.title_ids) == 1
     assert result.title_ids[0].title == "Arquipelago (Original Mix)"
@@ -160,7 +160,7 @@ def test_parse_media_item_user_data_guiboratto():
 
 
 def test_parse_media_item_user_data_happysong_no_automix():
-    data = _load("happysong-mediaItemUserData.bin")
+    data = _load("f6fa142fbda6a56deb6dfa71dbef389e-mediaItemUserData.bin")
     result = parse_media_item_user_data(data)
     assert result.title_ids[0].title == "The Happy Song"
     assert result.title_ids[0].artist == "Imogen Heap"
@@ -171,7 +171,7 @@ def test_parse_media_item_user_data_happysong_no_automix():
 
 
 def test_parse_media_item_user_data_luvmaschine():
-    data = _load("luvmaschine-mediaItemUserData.bin")
+    data = _load("df6376b59fbc6e4fd56d55f3e64b5d2e-mediaItemUserData.bin")
     result = parse_media_item_user_data(data)
     assert result.title_ids[0].title == "Luvmaschine Original Mix"
     assert result.title_ids[0].artist == "Luvless"
@@ -182,7 +182,7 @@ def test_parse_media_item_user_data_luvmaschine():
 
 
 def test_parse_media_item_user_data_just_no_automix():
-    data = _load("just-mediaItemUserData.bin")
+    data = _load("dc11bf9b77216b8c5f295030613d72f1-mediaItemUserData.bin")
     result = parse_media_item_user_data(data)
     assert result.title_ids[0].title == "Just (Original Mix)"
     assert result.title_ids[0].artist == "Bicep"
