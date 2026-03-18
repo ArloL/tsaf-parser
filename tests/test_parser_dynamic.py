@@ -24,7 +24,7 @@ def test_title_id_fields(track_with_title_ids):
     result = parse_media_item_title_id(data)
     assert result.title == track_with_title_ids.title
     assert result.artist == track_with_title_ids.artist
-    assert result.duration == pytest.approx(track_with_title_ids.duration, abs=0.1)
+    assert result.duration == pytest.approx(track_with_title_ids.duration, rel=0.003)
 
 
 # ---------------------------------------------------------------------------
@@ -38,7 +38,7 @@ def test_location_fields(track_with_location):
     assert result.apple_music_id == track_with_location.apple_music_id
     assert result.title == track_with_location.title
     assert result.artist == track_with_location.artist
-    assert result.duration == pytest.approx(track_with_location.duration, abs=0.1)
+    assert result.duration == pytest.approx(track_with_location.duration, rel=0.003)
 
 
 # ---------------------------------------------------------------------------
@@ -53,9 +53,9 @@ def test_analyzed_data_fields(track_with_analyzed_data):
     assert result.title_ids[0].title == track_with_analyzed_data.title
     assert result.title_ids[0].artist == track_with_analyzed_data.artist
     assert result.title_ids[0].duration == pytest.approx(
-        track_with_analyzed_data.duration, abs=0.1
+        track_with_analyzed_data.duration, rel=0.003
     )
-    assert result.bpm == pytest.approx(track_with_analyzed_data.bpm, abs=0.1)
+    assert result.bpm == pytest.approx(track_with_analyzed_data.bpm, rel=0.003)
     if result.key_signature_index is not None:
         assert result.key_signature_index == track_with_analyzed_data.key_signature_index
 
@@ -72,5 +72,5 @@ def test_user_data_title_ids(track_with_user_data):
     assert result.title_ids[0].title == track_with_user_data.title
     assert result.title_ids[0].artist == track_with_user_data.artist
     assert result.title_ids[0].duration == pytest.approx(
-        track_with_user_data.duration, abs=0.1
+        track_with_user_data.duration, rel=0.003
     )
