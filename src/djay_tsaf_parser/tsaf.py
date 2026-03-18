@@ -296,6 +296,13 @@ def _resolve_inline_sub_entity(
 
     Uses the sub-entity's cross-refs to resolve the parent field name via
     ``xref - 2 = schema_index``.  The sub-entity is stored as-is.
+
+    The ``- 2`` offset exists because cross-ref IDs 0 and 1 appear to be
+    reserved (best guess — see README for details).  ID 0 is never observed;
+    ID 1 appears on collection sub-entities and may be a membership marker.
+    Schema field indices start at ID 2, so ``xref - 2`` converts to a
+    0-based schema index.  This function skips IDs that fall outside the
+    parent's schema range (including the reserved ones).
     """
     field_name: str | None = None
     for xref_id in sub.cross_refs:

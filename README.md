@@ -1,21 +1,16 @@
-# DJAY TSAF Encoding Parser
+# DJAY TSAF Binary Format
 
-This is a python research project. The goal is to understand the TSAF binary
-format as much as reasonable. TSAF is a binary format used by the dj-ing macOS
-application [djay](https://www.algoriddim.com/djay-pro-mac).
+TSAF is a binary format used by the DJ-ing macOS application
+[djay](https://www.algoriddim.com/djay-pro-mac). This project documents the
+format based on reverse-engineering exploration. It also includes a python
+based parser and tests to verify the exploration.
 
-## Tools
+## Sample data
 
-This project uses [uv](https://docs.astral.sh/uv/) to manage the Python version, virtualenv, and dependencies.
-
-Tests are written in pytest.
-
-## Test data
-
-For easier exploration this project contains extracted binary blobs in `/data`.
-There is data for four songs (prefix: guiboratto, happysong, just and
-luvmaschine) for four different columns (suffix: localMediaItemLocations,
-mediaItemAnalyzedData, mediaItemTitleIDs and mediaItemUserData).
+Extracted binary blobs are in `/data`. There is data for four songs
+(prefix: guiboratto, happysong, just and luvmaschine) for four different
+columns (suffix: localMediaItemLocations, mediaItemAnalyzedData,
+mediaItemTitleIDs and mediaItemUserData).
 
 1. guiboratto
   * Artist: Gui Boratto
@@ -90,8 +85,8 @@ Entity stream starts at offset **20**. Every entity begins with `0x2B`.
 - Entity body ends with an explicit `0x00` terminator, after which optional
   parent cross-reference pairs `0x05 id` (id `< 0x10`) may appear
 - A `0x2B` byte encountered inside a verbose entity body (before the `0x00`
-  terminator) introduces an **inline sub-entity** — a child entity parsed
-  recursively whose cross-reference IDs map it to a field of the parent.
+  terminator) introduces an **inline sub-entity** — a child entity whose
+  cross-reference IDs map it to a field of the parent.
   The parent's body continues after all inline sub-entities and ends with
   its own `0x00` terminator
 
@@ -197,8 +192,8 @@ the schema for that type, enabling compact encoding in later occurrences.
 `0x0B [count]` introduces a collection of `count` items. The item type is
 determined by the first byte after the count:
 
-- `0x2B` → sub-entities; each starts with `0x2B` + form byte, parsed
-  recursively
+- `0x2B` → sub-entities; each starts with `0x2B` + form byte (recursive
+  structure)
 - `0x08` → schema field-name strings; `count` × (`0x08` + cstring);
   declares field names for the current entity type
 - `0x21` → Apple ID values; each is `0x21 0x08` + cstring (the Apple Music
@@ -284,24 +279,59 @@ parent_field_index = xref_id - 2
 ```
 
 where `parent_field_index` is the 0-based index into the parent entity's
-schema name list. IDs 0 and 1 appear to be reserved. The IDs vary per file
-because the **schema name order** varies per file — but `xref - 2` always
-resolves to the correct field name.
+schema name list. The IDs vary per file because the **schema name order**
+varies per file — but `xref - 2` always resolves to the correct field name.
+
+**Why subtract 2?** Best-guess interpretation based on observed data: the
+cross-ref ID space reserves two slots before the schema field indices:
+
+| Cross-ref ID | Meaning (best guess) | Evidence |
+|---|---|---|
+| 0 | Reserved / null | Never observed in any file |
+| 1 | Collection membership marker? | Always present (pre-field) on `ADCMediaItemTitleID` sub-entities inside collections; never on inline children (`ADCCuePoint`) or top-level entities. Purpose unclear |
+| 2 | First schema field (always `uuid`) | Always present (pre-field) on `ADCMediaItemTitleID` sub-entities. When an entity appears as a sub-entity it **omits** its own `uuid` field — this xref may indicate it inherits/shares the parent's UUID |
+| 3+ | Subsequent schema fields | Used for parent field binding (e.g. `titleIDs`, `automixStartPoint`, `endPoint`) |
+
+Cross-refs also appear in **two structural positions** within an entity,
+which may have different semantics (best guess — this is not confirmed):
+
+- **Pre-field** (right after the type name, before data fields): IDs 1
+  and 2 — found on collection sub-entities (`ADCMediaItemTitleID`).
+  These may be entity-level metadata rather than parent field bindings.
+- **Post-terminator** (after the `0x00` body terminator): IDs 2+ — found on
+  both collection sub-entities and inline children. These encode parent
+  field bindings.
+
+When resolving a sub-entity's parent field, only cross-ref IDs that fall
+within the parent's schema range (i.e. `0 <= xref - 2 < schema_length`)
+identify a parent field. Pre-field xrefs 1 and 2 on collection sub-entities
+do not resolve to a parent field binding for inline children (which only
+have post-terminator xrefs), and xref 1 always falls outside the schema
+range (index −1).
+
+Supporting evidence for UUID inheritance:
+- Top-level `ADCMediaItemTitleID` (in mediaItemTitleIDs): has its own `uuid`
+  field, **no cross-refs**
+- Sub-entity `ADCMediaItemTitleID` (inside any parent): **omits** `uuid`
+  field, has pre-field `xref=2` → parent's `schema[0]` = `uuid`
+- The same UUID is shared across all entity types for a given track
 
 Example (guiboratto `ADCMediaItemUserData` schema):
 
 ```
-index 0: uuid              (+ 2 = xref 2, reserved — never observed)
+index 0: uuid              (+ 2 = xref 2) ← ADCMediaItemTitleID pre-field ref
 index 1: automixStartPoint (+ 2 = xref 3) ← compact ADCCuePoint provides this
 index 2: playCount         (+ 2 = xref 4)
 index 3: audioAlignmentFingerprint (+ 2 = xref 5)
-index 4: titleIDs          (+ 2 = xref 6) ← ADCMediaItemTitleID provides this
+index 4: titleIDs          (+ 2 = xref 6) ← ADCMediaItemTitleID post-term ref
 index 5: automixEndPoint   (+ 2 = xref 7) ← compact ADCCuePoint provides this
 index 6: endPoint          (+ 2 = xref 8) ← verbose ADCCuePoint provides this
 index 7: userChangedCloudKeys (+ 2 = xref 9)
 ```
 
-Cross-refs on verbose entities appear **after** the `0x00` body terminator.
+Cross-refs on verbose entities appear **after** the `0x00` body terminator
+(for parent field binding) and optionally **before** data fields (for
+entity-level metadata like IDs 1 and 2).
 Cross-refs on compact entities appear **inside** the field list as `0x05 id`
 where id < 0x10, interleaved with normal `0x05` field-separator bytes
 (which have id ≥ 0x10).
