@@ -19,7 +19,7 @@ a hex hash and `column` is one of `localMediaItemLocations`,
 
 Reference tracks in `/data`:
 
-1. guiboratto
+1. d8a452ad23698cb4076d1baed024844b
    * Artist: Gui Boratto
    * Track: Arquipelago (Original Mix)
    * Apple Music ID: 8986230555104447322
@@ -28,7 +28,7 @@ Reference tracks in `/data`:
    * Automix End: ~272.826s (~4:32.8)
    * BPM: ~125.0
    * Key Index: 15
-2. happysong
+2. f6fa142fbda6a56deb6dfa71dbef389e
    * Artist: Imogen Heap
    * Title: The Happy Song
    * Apple Music ID: 15276055944141716431
@@ -37,7 +37,7 @@ Reference tracks in `/data`:
    * Automix End: none
    * BPM: ~82.0
    * Key Index: 6
-3. just
+3. dc11bf9b77216b8c5f295030613d72f1
    * Artist: Bicep
    * Title: Just (Original Mix)
    * Apple Music ID: 14110461239496945263
@@ -46,7 +46,7 @@ Reference tracks in `/data`:
    * Automix End: none
    * BPM: ~120.0
    * Key Index: 11
-4. luvmaschine
+4. df6376b59fbc6e4fd56d55f3e64b5d2e
    * Artist: Luvless
    * Title: Luvmaschine Original Mix
    * Apple Music ID: 16256298393022529679

@@ -24,7 +24,7 @@ def _load(filename: str) -> bytes:
 
 
 def test_parse_tsaf_header_fields():
-    data = _load("guiboratto-mediaItemTitleIDs.bin")
+    data = _load("d8a452ad23698cb4076d1baed024844b-mediaItemTitleIDs.bin")
     doc = parse_tsaf(data)
     assert isinstance(doc, TSAFDocument)
     assert doc.header.magic == b"TSAF"
@@ -43,7 +43,7 @@ def test_parse_tsaf_invalid_magic_raises():
 
 
 def test_parse_tsaf_mediaItemTitleIDs_single_verbose_entity():
-    data = _load("guiboratto-mediaItemTitleIDs.bin")
+    data = _load("d8a452ad23698cb4076d1baed024844b-mediaItemTitleIDs.bin")
     doc = parse_tsaf(data)
     assert len(doc.entities) == 1
     entity = doc.entities[0]
@@ -52,7 +52,7 @@ def test_parse_tsaf_mediaItemTitleIDs_single_verbose_entity():
 
 
 def test_parse_tsaf_mediaItemTitleIDs_field_names_and_tags():
-    data = _load("guiboratto-mediaItemTitleIDs.bin")
+    data = _load("d8a452ad23698cb4076d1baed024844b-mediaItemTitleIDs.bin")
     doc = parse_tsaf(data)
     entity = doc.entities[0]
     assert isinstance(entity, VerboseEntity)
@@ -66,7 +66,7 @@ def test_parse_tsaf_mediaItemTitleIDs_field_names_and_tags():
 
 
 def test_parse_tsaf_mediaItemTitleIDs_field_values():
-    data = _load("guiboratto-mediaItemTitleIDs.bin")
+    data = _load("d8a452ad23698cb4076d1baed024844b-mediaItemTitleIDs.bin")
     doc = parse_tsaf(data)
     entity = doc.entities[0]
     assert isinstance(entity, VerboseEntity)
@@ -83,7 +83,7 @@ def test_parse_tsaf_mediaItemTitleIDs_field_values():
 
 def test_parse_tsaf_localMediaItemLocations_nested_titleid():
     """ADCMediaItemLocation embeds an ADCMediaItemTitleID inside a titleIDs collection."""
-    data = _load("guiboratto-localMediaItemLocations.bin")
+    data = _load("d8a452ad23698cb4076d1baed024844b-localMediaItemLocations.bin")
     doc = parse_tsaf(data)
     location = doc.entities[0]
     assert isinstance(location, VerboseEntity)
@@ -103,7 +103,7 @@ def test_parse_tsaf_localMediaItemLocations_nested_titleid():
 
 def test_parse_tsaf_localMediaItemLocations_apple_id_in_collection():
     """Apple Music ID is stored as a string in a sourceURIs collection."""
-    data = _load("guiboratto-localMediaItemLocations.bin")
+    data = _load("d8a452ad23698cb4076d1baed024844b-localMediaItemLocations.bin")
     doc = parse_tsaf(data)
     location = doc.entities[0]
     assert isinstance(location, VerboseEntity)
@@ -121,7 +121,7 @@ def test_parse_tsaf_localMediaItemLocations_apple_id_in_collection():
 
 
 def test_parse_tsaf_mediaItemAnalyzedData_entity_types():
-    data = _load("guiboratto-mediaItemAnalyzedData.bin")
+    data = _load("d8a452ad23698cb4076d1baed024844b-mediaItemAnalyzedData.bin")
     doc = parse_tsaf(data)
     analyzed = doc.entities[0]
     assert isinstance(analyzed, VerboseEntity)
@@ -133,7 +133,7 @@ def test_parse_tsaf_mediaItemAnalyzedData_entity_types():
 
 
 def test_parse_tsaf_mediaItemAnalyzedData_bpm_and_key():
-    data = _load("guiboratto-mediaItemAnalyzedData.bin")
+    data = _load("d8a452ad23698cb4076d1baed024844b-mediaItemAnalyzedData.bin")
     doc = parse_tsaf(data)
     analyzed = next(
         e for e in doc.entities
@@ -153,7 +153,7 @@ def test_parse_tsaf_mediaItemAnalyzedData_bpm_and_key():
 
 def test_parse_tsaf_mediaItemUserData_cue_fields():
     """ADCCuePoint entities are inline children of ADCMediaItemUserData, resolved by cross-ref."""
-    data = _load("guiboratto-mediaItemUserData.bin")
+    data = _load("d8a452ad23698cb4076d1baed024844b-mediaItemUserData.bin")
     doc = parse_tsaf(data)
     user_data = doc.entities[0]
     assert isinstance(user_data, VerboseEntity)
@@ -172,7 +172,7 @@ def test_parse_tsaf_mediaItemUserData_cue_fields():
 
 def test_parse_tsaf_luvmaschine_cue_fields():
     """luvmaschine has a different schema order but cue fields resolve by cross-ref."""
-    data = _load("luvmaschine-mediaItemUserData.bin")
+    data = _load("df6376b59fbc6e4fd56d55f3e64b5d2e-mediaItemUserData.bin")
     doc = parse_tsaf(data)
     user_data = doc.entities[0]
     fm = {f.name: f.value for f in user_data.fields}
