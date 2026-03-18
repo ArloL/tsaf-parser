@@ -151,49 +151,30 @@ def test_parse_tsaf_mediaItemAnalyzedData_bpm_and_key():
 # ---------------------------------------------------------------------------
 
 
-def _cue_entities(doc):
-    return [e for e in doc.entities if isinstance(e, (VerboseEntity, CompactEntity)) and "CuePoint" in e.type_name]
-
-
-def test_parse_tsaf_mediaItemUserData_cue_entity_types():
-    """guiboratto user data has one verbose and two compact ADCCuePoint entities."""
+def test_parse_tsaf_mediaItemUserData_cue_fields():
+    """ADCCuePoint entities are resolved into named float fields on ADCMediaItemUserData."""
     data = _load("guiboratto-mediaItemUserData.bin")
     doc = parse_tsaf(data)
-    cues = _cue_entities(doc)
-    assert len(cues) == 3
-    assert isinstance(cues[0], VerboseEntity)
-    assert isinstance(cues[1], CompactEntity)
-    assert isinstance(cues[2], CompactEntity)
+    user_data = doc.entities[0]
+    assert isinstance(user_data, VerboseEntity)
+    fm = {f.name: f for f in user_data.fields}
+    assert "automixStartPoint" in fm
+    assert "automixEndPoint" in fm
+    assert "endPoint" in fm
+    assert fm["automixStartPoint"].type_tag == 0x13
+    assert fm["automixStartPoint"].value == pytest.approx(17.475, abs=0.01)
+    assert fm["automixEndPoint"].value == pytest.approx(272.826, abs=0.01)
+    assert fm["endPoint"].value == pytest.approx(272.826, abs=0.01)
 
 
-def test_parse_tsaf_mediaItemUserData_verbose_cue_fields():
-    data = _load("guiboratto-mediaItemUserData.bin")
-    doc = parse_tsaf(data)
-    verbose_cue = next(e for e in _cue_entities(doc) if isinstance(e, VerboseEntity))
-    field_map = {f.name: f for f in verbose_cue.fields}
-    assert "time" in field_map
-    assert field_map["time"].type_tag == 0x13
-    assert field_map["time"].value == pytest.approx(272.826, abs=0.01)
-
-
-def test_parse_tsaf_mediaItemUserData_compact_cue_time_field():
-    """First compact ADCCuePoint has a resolved 'time' field name from schema registry."""
-    data = _load("guiboratto-mediaItemUserData.bin")
-    doc = parse_tsaf(data)
-    compact_cues = [e for e in _cue_entities(doc) if isinstance(e, CompactEntity)]
-    assert len(compact_cues) >= 1
-    time_field = next(f for f in compact_cues[0].fields if f.name == "time")
-    assert time_field.type_tag == 0x13
-    assert time_field.value == pytest.approx(17.475, abs=0.01)
-
-
-def test_parse_tsaf_luvmaschine_cue_schema_order():
-    """luvmaschine ADCCuePoint schema declares (time, endTime, number) — different from guiboratto."""
+def test_parse_tsaf_luvmaschine_cue_fields():
+    """luvmaschine has a different schema order but cue fields resolve to correct values."""
     data = _load("luvmaschine-mediaItemUserData.bin")
     doc = parse_tsaf(data)
-    verbose_cue = next(e for e in _cue_entities(doc) if isinstance(e, VerboseEntity))
-    field_names = [f.name for f in verbose_cue.fields if f.name is not None]
-    assert field_names[0] == "time"
-    assert "endTime" in field_names
+    user_data = doc.entities[0]
+    fm = {f.name: f.value for f in user_data.fields}
+    assert fm["automixStartPoint"] == pytest.approx(54.735, abs=0.01)
+    assert fm["automixEndPoint"] == pytest.approx(378.944, abs=0.01)
+    assert fm["endPoint"] == pytest.approx(378.944, abs=0.01)
 
 

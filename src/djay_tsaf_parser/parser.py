@@ -39,9 +39,7 @@ class MediaItemTitleID:
 class MediaItemAnalyzedData:
     """Parsed fields from a mediaItemAnalyzedData TSAF blob."""
 
-    title: str
-    artist: str
-    duration: float
+    title_ids: list[MediaItemTitleID]
     bpm: float
     key_signature_index: int
 
@@ -50,11 +48,10 @@ class MediaItemAnalyzedData:
 class MediaItemUserData:
     """Parsed fields from a mediaItemUserData TSAF blob."""
 
-    title: str
-    artist: str
-    duration: float
+    title_ids: list[MediaItemTitleID]
     automix_start_point: float | None
     automix_end_point: float | None
+    end_point: float | None
 
 
 # ---------------------------------------------------------------------------
@@ -162,13 +159,19 @@ def parse_media_item_analyzed_data(data: bytes) -> MediaItemAnalyzedData:
     title_ids_field = next((f for f in analyzed.fields if f.name == "titleIDs"), None)
     if not title_ids_field or not isinstance(title_ids_field.value, list):
         raise TSAFParseError("titleIDs field not found")
-    tid = {f.name: f.value for f in title_ids_field.value[0].fields}
 
     ad = {f.name: f.value for f in analyzed.fields}
     return MediaItemAnalyzedData(
-        title=tid["title"],
-        artist=tid["artist"],
-        duration=float(tid["duration"]),
+        title_ids=[
+            MediaItemTitleID(
+                title=tid["title"],
+                artist=tid["artist"],
+                duration=float(tid["duration"]),
+            )
+            for e in title_ids_field.value
+            if isinstance(e, (VerboseEntity, CompactEntity))
+            for tid in [{f.name: f.value for f in e.fields}]
+        ],
         bpm=float(ad["bpm"]),
         key_signature_index=ad["keySignatureIndex"],
     )
@@ -209,34 +212,21 @@ def parse_media_item_user_data(data: bytes) -> MediaItemUserData:
     )
     if not title_id_collection:
         raise TSAFParseError("titleIDs collection not found in ADCMediaItemUserData")
-    tid = {f.name: f.value for f in title_id_collection[0].fields}
 
-    verbose_times: list[float] = []
-    compact_times: list[float] = []
-
-    for entity in doc.entities:
-        if not isinstance(entity, (VerboseEntity, CompactEntity)):
-            continue
-        if "CuePoint" not in entity.type_name:
-            continue
-        if isinstance(entity, VerboseEntity):
-            for f in entity.fields:
-                if f.name == "time" and isinstance(f.value, float):
-                    verbose_times.append(f.value)
-        elif isinstance(entity, CompactEntity):
-            for f in entity.fields:
-                if isinstance(f.value, float):
-                    compact_times.append(f.value)
-                    break
-
-    automix_start_point: float | None = compact_times[0] if compact_times else None
-    all_times = verbose_times + compact_times
-    automix_end_point: float | None = max(all_times) if all_times else None
+    fm = {f.name: f.value for f in user_data.fields}
 
     return MediaItemUserData(
-        title=tid["title"],
-        artist=tid["artist"],
-        duration=float(tid["duration"]),
-        automix_start_point=automix_start_point,
-        automix_end_point=automix_end_point,
+        title_ids=[
+            MediaItemTitleID(
+                title=tid["title"],
+                artist=tid["artist"],
+                duration=float(tid["duration"]),
+            )
+            for e in title_id_collection
+            if isinstance(e, (VerboseEntity, CompactEntity))
+            for tid in [{f.name: f.value for f in e.fields}]
+        ],
+        automix_start_point=fm.get("automixStartPoint"),
+        automix_end_point=fm.get("automixEndPoint"),
+        end_point=fm.get("endPoint"),
     )

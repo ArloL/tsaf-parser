@@ -224,41 +224,61 @@ uint64.
 | `ADCMediaItemLocation` | localMediaItemLocations | `uuid` (str), `titleIDs` (collection → `ADCMediaItemTitleID`), anonymous collection (Apple ID strings) |
 | `ADCMediaItemTitleID` | all files (nested or top-level) | `uuid` (str), `title` (str), `artist` (str), `duration` (float32, seconds) |
 | `ADCMediaItemAnalyzedData` | mediaItemAnalyzedData | `uuid` (str), `titleIDs` (collection → `ADCMediaItemTitleID`), `bpm` (float32), `keySignatureIndex` (uint8), `isStraightGrid` (boolean, not always present) |
-| `ADCMediaItemUserData` | mediaItemUserData | `uuid` (str), anonymous collection (→ `ADCMediaItemTitleID`); cue points appear as top-level entities |
-| `ADCCuePoint` | mediaItemUserData | `time` (float32, seconds), `endTime` (float32, -1.0 = absent), `number` (0x2E marker = 46) |
+| `ADCMediaItemUserData` | mediaItemUserData | schema block declares field names (varies per file); `titleIDs` (anonymous collection → `ADCMediaItemTitleID`); `automixStartPoint`, `automixEndPoint`, `endPoint` (float32, only when cues present); `playCount`, `colorIndex`, `audioAlignmentFingerprint`, `userChangedCloudKeys` |
+| `ADCCuePoint` | mediaItemUserData | top-level sibling entities (not nested); `time` (float32, seconds), `endTime` (float32, -1.0 = absent), `number` (0x2E marker = 46); field order varies per file |
 | `ADCAudioAlignmentFingerprint` | mediaItemUserData | anonymous raw data block (0x15, zlib-compressed) |
 
 All entity types carry a `uuid` field (hex string, 32 chars) that identifies
 the track consistently across files.
 
+#### ADCMediaItemUserData schema block
+
+`ADCMediaItemUserData` begins with a `0x0B` collection that declares field
+names for compact encoding (the `0x08`-item variant of the collection body).
+The field names present in this schema block vary per file:
+
+| Field name | guiboratto | luvmaschine | just | happysong |
+|---|---|---|---|---|
+| `automixStartPoint` | ✓ | ✓ | — | — |
+| `automixEndPoint` | ✓ | ✓ | — | — |
+| `endPoint` | ✓ | ✓ | — | — |
+| `playCount` | ✓ | ✓ | ✓ | — |
+| `colorIndex` | — | ✓ | ✓ | — |
+| `audioAlignmentFingerprint` | ✓ | ✓ | ✓ | — |
+| `titleIDs` | ✓ | ✓ | ✓ | — |
+| `userChangedCloudKeys` | ✓ | ✓ | ✓ | — |
+
+The `titleIDs` collection in this entity is **anonymous** (no name follows
+the collection in the binary — the next byte after the collection data is
+`0x2B`, the first cue entity marker, so no field name is read).
+
 #### Automix cue times
 
-Cue times are stored in `ADCCuePoint` entities in `mediaItemUserData`.
+`ADCCuePoint` entities appear as **top-level siblings** of
+`ADCMediaItemUserData` in the entity stream — they are not nested inside it.
+`ADCMediaItemUserData` terminates with `0x00` followed by an optional
+cross-reference byte pair (`0x05 id`), after which the cue entities begin.
 
-The verbose `ADCCuePoint` entity always contains the end-of-automix time in
-its `time` field. Compact `ADCCuePoint` entities omit the first field of
-the schema (`time` in guiboratto, `endTime` in luvmaschine) when it is the
-same as the automix end time, and store the automix start time in the first
-field that is present.
+The three cue-related fields (`automixStartPoint`, `automixEndPoint`,
+`endPoint`) are declared in the `ADCMediaItemUserData` schema block for tracks
+that have automix set. Tracks without automix (happysong, just) have no
+`ADCCuePoint` entities and these fields are absent from the schema.
 
-Extraction algorithm:
-1. Collect `time` field values from verbose `ADCCuePoint` entities →
-   `verbose_times`
-2. Collect the first float value from each compact `ADCCuePoint` entity →
-   `compact_times`
-3. `automix_start_point` = `compact_times[0]` if any compact cue exists,
-   else `None`
-4. `automix_end_point` = `max(verbose_times + compact_times)` if any times
-   exist, else `None`
+`endPoint` equals `automixEndPoint` in all observed data.
 
-The compact time field ID varies with schema order:
-- guiboratto schema `(time, number, endTime)` → automix start is field `0x10`
-  (`time`)
-- luvmaschine schema `(time, endTime, number)` → automix start is field `0x11`
-  (`endTime`, because `time` = end-of-automix is omitted from compact form)
+The cue field values are extracted from the `ADCCuePoint` float values:
+- `automixStartPoint` = minimum float value across all cue entities
+- `automixEndPoint` = `endPoint` = maximum float value across all cue entities
 
-For tracks without automix (happysong, just), no `ADCCuePoint` entities are
-present in the file at all.
+The `ADCCuePoint` field order varies between files:
+- guiboratto: `(time, number, endTime)` — schema IDs `0x10`, `0x11`, `0x12`
+- luvmaschine: `(time, endTime, number)` — schema IDs `0x10`, `0x11`, `0x12`
+
+The compact form omits the first schema field when it matches the automix end
+time, and encodes the automix start time in the first field present. Because
+field order differs per file, the field ID carrying the start time differs:
+- guiboratto compact start → field `0x10` (`time`)
+- luvmaschine compact start → field `0x11` (`endTime`, `time` is omitted)
 
 #### ADCCuePoint compact encoding example — guiboratto
 

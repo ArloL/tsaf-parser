@@ -104,9 +104,10 @@ def test_parse_media_item_title_id_just():
 def test_parse_media_item_analyzed_data_guiboratto():
     data = _load("guiboratto-mediaItemAnalyzedData.bin")
     result = parse_media_item_analyzed_data(data)
-    assert result.title == "Arquipelago (Original Mix)"
-    assert result.artist == "Gui Boratto"
-    assert result.duration == pytest.approx(367.5, abs=0.1)
+    assert len(result.title_ids) == 1
+    assert result.title_ids[0].title == "Arquipelago (Original Mix)"
+    assert result.title_ids[0].artist == "Gui Boratto"
+    assert result.title_ids[0].duration == pytest.approx(367.5, abs=0.1)
     assert result.bpm == pytest.approx(125.0, abs=0.1)
     assert result.key_signature_index == 15
 
@@ -114,9 +115,9 @@ def test_parse_media_item_analyzed_data_guiboratto():
 def test_parse_media_item_analyzed_data_happysong():
     data = _load("happysong-mediaItemAnalyzedData.bin")
     result = parse_media_item_analyzed_data(data)
-    assert result.title == "The Happy Song"
-    assert result.artist == "Imogen Heap"
-    assert result.duration == pytest.approx(158.0, abs=0.1)
+    assert result.title_ids[0].title == "The Happy Song"
+    assert result.title_ids[0].artist == "Imogen Heap"
+    assert result.title_ids[0].duration == pytest.approx(158.0, abs=0.1)
     assert result.bpm == pytest.approx(82.0, abs=0.1)
     assert result.key_signature_index == 6
 
@@ -124,9 +125,9 @@ def test_parse_media_item_analyzed_data_happysong():
 def test_parse_media_item_analyzed_data_luvmaschine():
     data = _load("luvmaschine-mediaItemAnalyzedData.bin")
     result = parse_media_item_analyzed_data(data)
-    assert result.title == "Luvmaschine Original Mix"
-    assert result.artist == "Luvless"
-    assert result.duration == pytest.approx(414.8, abs=0.1)
+    assert result.title_ids[0].title == "Luvmaschine Original Mix"
+    assert result.title_ids[0].artist == "Luvless"
+    assert result.title_ids[0].duration == pytest.approx(414.8, abs=0.1)
     assert result.bpm == pytest.approx(114.0, abs=0.1)
     assert result.key_signature_index == 3
 
@@ -134,9 +135,9 @@ def test_parse_media_item_analyzed_data_luvmaschine():
 def test_parse_media_item_analyzed_data_just():
     data = _load("just-mediaItemAnalyzedData.bin")
     result = parse_media_item_analyzed_data(data)
-    assert result.title == "Just (Original Mix)"
-    assert result.artist == "Bicep"
-    assert result.duration == pytest.approx(372.6, abs=0.1)
+    assert result.title_ids[0].title == "Just (Original Mix)"
+    assert result.title_ids[0].artist == "Bicep"
+    assert result.title_ids[0].duration == pytest.approx(372.6, abs=0.1)
     assert result.bpm == pytest.approx(120.0, abs=0.1)
     assert result.key_signature_index == 11
 
@@ -149,38 +150,43 @@ def test_parse_media_item_analyzed_data_just():
 def test_parse_media_item_user_data_guiboratto():
     data = _load("guiboratto-mediaItemUserData.bin")
     result = parse_media_item_user_data(data)
-    assert result.title == "Arquipelago (Original Mix)"
-    assert result.artist == "Gui Boratto"
-    assert result.duration == pytest.approx(367.5, abs=0.1)
+    assert len(result.title_ids) == 1
+    assert result.title_ids[0].title == "Arquipelago (Original Mix)"
+    assert result.title_ids[0].artist == "Gui Boratto"
+    assert result.title_ids[0].duration == pytest.approx(367.5, abs=0.1)
     assert result.automix_start_point == pytest.approx(17.475, abs=0.01)
     assert result.automix_end_point == pytest.approx(272.826, abs=0.01)
+    assert result.end_point == pytest.approx(272.826, abs=0.01)
 
 
 def test_parse_media_item_user_data_happysong_no_automix():
     data = _load("happysong-mediaItemUserData.bin")
     result = parse_media_item_user_data(data)
-    assert result.title == "The Happy Song"
-    assert result.artist == "Imogen Heap"
-    assert result.duration == pytest.approx(158.0, abs=0.1)
+    assert result.title_ids[0].title == "The Happy Song"
+    assert result.title_ids[0].artist == "Imogen Heap"
+    assert result.title_ids[0].duration == pytest.approx(158.0, abs=0.1)
     assert result.automix_start_point is None
     assert result.automix_end_point is None
+    assert result.end_point is None
 
 
-def test_parse_media_item_user_data_luvmaschine_end_only():
+def test_parse_media_item_user_data_luvmaschine():
     data = _load("luvmaschine-mediaItemUserData.bin")
     result = parse_media_item_user_data(data)
-    assert result.title == "Luvmaschine Original Mix"
-    assert result.artist == "Luvless"
-    assert result.duration == pytest.approx(414.8, abs=0.1)
+    assert result.title_ids[0].title == "Luvmaschine Original Mix"
+    assert result.title_ids[0].artist == "Luvless"
+    assert result.title_ids[0].duration == pytest.approx(414.8, abs=0.1)
     assert result.automix_start_point == pytest.approx(54.8, abs=0.1)
     assert result.automix_end_point == pytest.approx(378.9, abs=0.1)
+    assert result.end_point == pytest.approx(378.9, abs=0.1)
 
 
 def test_parse_media_item_user_data_just_no_automix():
     data = _load("just-mediaItemUserData.bin")
     result = parse_media_item_user_data(data)
-    assert result.title == "Just (Original Mix)"
-    assert result.artist == "Bicep"
-    assert result.duration == pytest.approx(372.6, abs=0.1)
+    assert result.title_ids[0].title == "Just (Original Mix)"
+    assert result.title_ids[0].artist == "Bicep"
+    assert result.title_ids[0].duration == pytest.approx(372.6, abs=0.1)
     assert result.automix_start_point is None
     assert result.automix_end_point is None
+    assert result.end_point is None

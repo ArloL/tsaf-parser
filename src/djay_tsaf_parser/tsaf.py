@@ -471,6 +471,64 @@ def parse_tsaf(data: bytes) -> TSAFDocument:
             entity = _parse_raw_entity(r, form)
             entities.append(entity)
 
+    _resolve_user_data_cue_points(entities, schema_registry)
     return TSAFDocument(header=header, entities=entities)
+
+
+_CUE_FIELD_NAMES = {"automixStartPoint", "automixEndPoint", "endPoint"}
+
+
+def _resolve_user_data_cue_points(
+    entities: list[TSAFEntity],
+    schema_registry: dict[str, list[str]],
+) -> None:
+    """Attach ADCCuePoint entities to ADCMediaItemUserData as named float fields.
+
+    Uses the ADCMediaItemUserData schema to determine which cue-point fields are
+    present, maps the minimum cue time to automixStartPoint and the maximum to
+    automixEndPoint / endPoint, then removes the ADCCuePoint entities from the
+    top-level entity list.
+    """
+    user_data_idx = next(
+        (
+            i for i, e in enumerate(entities)
+            if isinstance(e, VerboseEntity) and e.type_name == "ADCMediaItemUserData"
+        ),
+        None,
+    )
+    if user_data_idx is None:
+        return
+
+    user_data = entities[user_data_idx]
+    schema = schema_registry.get("ADCMediaItemUserData", [])
+    present_cue_fields = [name for name in schema if name in _CUE_FIELD_NAMES]
+    if not present_cue_fields:
+        return
+
+    cue_indices = [
+        i for i in range(user_data_idx + 1, len(entities))
+        if isinstance(entities[i], (VerboseEntity, CompactEntity))
+        and "CuePoint" in entities[i].type_name  # type: ignore[union-attr]
+    ]
+    if not cue_indices:
+        return
+
+    times = [
+        next((f.value for f in entities[i].fields if isinstance(f.value, float) and f.value >= 0), None)  # type: ignore[union-attr]
+        for i in cue_indices
+    ]
+    valid_times = [t for t in times if t is not None]
+    if not valid_times:
+        return
+
+    min_t = min(valid_times)
+    max_t = max(valid_times)
+
+    for field_name in present_cue_fields:
+        value = min_t if field_name == "automixStartPoint" else max_t
+        user_data.fields.append(TSAFField(name=field_name, value=value, type_tag=0x13))
+
+    for i in sorted(cue_indices, reverse=True):
+        entities.pop(i)
 
 
