@@ -279,10 +279,15 @@ use `0x0B` for the schema collection, but some use `0x1A` instead
 | `automixEndPoint` | ✓ | ✓ | — | — |
 | `endPoint` | ✓ | ✓ | — | — |
 | `playCount` | ✓ | ✓ | ✓ | — |
-| `colorIndex` | — | ✓ | ✓ | — |
+| `colorIndex` | — | ✓ | ✓ | ✓ |
 | `audioAlignmentFingerprint` | ✓ | ✓ | ✓ | — |
-| `titleIDs` | ✓ | ✓ | ✓ | — |
-| `userChangedCloudKeys` | ✓ | ✓ | ✓ | — |
+| `titleIDs` | ✓ | ✓ | ✓ | ✓ |
+| `userChangedCloudKeys` | ✓ | ✓ | ✓ | ✓ |
+| `timestampIdentifierData` | —† | ✓ | ✓ | — |
+| `version` | —† | ✓ | ✓ | — |
+
+† Present in the file bytes after the entity body terminator (not inside the
+parsed body), so not captured in the schema registry for guiboratto.
 
 The `titleIDs` collection in this entity is **anonymous** (no field name
 follows the collection in the binary). The `ADCMediaItemTitleID` inside it

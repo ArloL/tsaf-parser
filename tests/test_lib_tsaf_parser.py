@@ -231,6 +231,52 @@ def test_adccuepoint_schema_luvmaschine_compact_uses_endtime_field():
     assert cue_fm["endTime"] == pytest.approx(54.735, abs=0.01)
 
 
+def test_happysong_userdata_schema_has_titleids_colorindex_userchangedcloudkeys():
+    """happysong ADCMediaItemUserData declares titleIDs, colorIndex, userChangedCloudKeys.
+
+    TSAF.md previously showed all "—" for happysong in the schema table.
+    The actual binary declares these three fields in its schema collection block.
+    """
+    data = _load("f6fa142fbda6a56deb6dfa71dbef389e-mediaItemUserData.bin")
+    doc = parse_tsaf(data)
+    user_data = doc.entities[0]
+    assert isinstance(user_data, VerboseEntity)
+    # uuid + anonymous titleIDs collection are the two data fields
+    field_names = [f.name for f in user_data.fields]
+    assert "uuid" in field_names
+    # The schema registry should contain the declared names
+    from djay_tsaf_parser.lib_tsaf_parser import _Reader, _parse_verbose_entity
+    r = _Reader(data)
+    r.read(20)
+    assert r.read_byte() == 0x2B
+    assert r.read_byte() == 0x08
+    schema_reg: dict = {}
+    _parse_verbose_entity(r, schema_reg)
+    schema = schema_reg.get("ADCMediaItemUserData", [])
+    assert "titleIDs" in schema, f"titleIDs missing from happysong schema: {schema}"
+    assert "colorIndex" in schema, f"colorIndex missing from happysong schema: {schema}"
+    assert "userChangedCloudKeys" in schema, f"userChangedCloudKeys missing from happysong schema: {schema}"
+
+
+def test_just_and_luvmaschine_userdata_have_version_field():
+    """just and luvmaschine ADCMediaItemUserData include a 'version' = 0 data field.
+
+    These files also declare 'timestampIdentifierData' as a schema-only name
+    (no value in the entity body). Neither is present in guiboratto or happysong.
+    """
+    for filename in [
+        "dc11bf9b77216b8c5f295030613d72f1-mediaItemUserData.bin",
+        "df6376b59fbc6e4fd56d55f3e64b5d2e-mediaItemUserData.bin",
+    ]:
+        data = _load(filename)
+        doc = parse_tsaf(data)
+        user_data = doc.entities[0]
+        assert isinstance(user_data, VerboseEntity)
+        fm = {f.name: f.value for f in user_data.fields}
+        assert "version" in fm, f"{filename}: 'version' field missing"
+        assert fm["version"] == 0, f"{filename}: 'version' expected 0, got {fm['version']}"
+
+
 # ---------------------------------------------------------------------------
 # parse_local_media_item_location
 # ---------------------------------------------------------------------------
