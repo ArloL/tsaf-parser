@@ -186,6 +186,51 @@ def test_parse_tsaf_luvmaschine_cue_fields():
     assert cue_fm.get("time") or cue_fm.get("endTime") == pytest.approx(54.735, abs=0.01)
 
 
+def test_adccuepoint_schema_guiboratto_has_time_endtime_number():
+    """Guiboratto ADCCuePoint schema is (time, endTime, number) — not (time, number).
+
+    Verified against the verbose ADCCuePoint entity in the binary. The compact
+    entities use field IDs 0x10=time, 0x11=endTime, 0x12=number.
+    """
+    data = _load("d8a452ad23698cb4076d1baed024844b-mediaItemUserData.bin")
+    doc = parse_tsaf(data)
+    user_data = doc.entities[0]
+    assert isinstance(user_data, VerboseEntity)
+    fm = {f.name: f for f in user_data.fields}
+
+    # automixStartPoint compact cue: time=17.475, endTime=-1.0 (absent), number=0
+    start_cue = fm["automixStartPoint"].value
+    assert isinstance(start_cue, CompactEntity)
+    cue_fm = {f.name: f.value for f in start_cue.fields}
+    assert "time" in cue_fm, "ADCCuePoint must have 'time' field (schema index 0)"
+    assert "endTime" in cue_fm, "ADCCuePoint must have 'endTime' field (schema index 1)"
+    assert "number" in cue_fm, "ADCCuePoint must have 'number' field (schema index 2)"
+    assert cue_fm["time"] == pytest.approx(17.475, abs=0.01)
+    assert cue_fm["endTime"] == pytest.approx(-1.0, abs=0.001)
+    assert cue_fm["number"] == 0
+
+
+def test_adccuepoint_schema_luvmaschine_compact_uses_endtime_field():
+    """Luvmaschine compact ADCCuePoint stores cue time in 'endTime', leaving 'time' absent.
+
+    This is the key difference from guiboratto, where compact entities use 'time'.
+    Cross-ref for automixStartPoint is xref=4 (4-2=2 → schema index 2).
+    """
+    data = _load("df6376b59fbc6e4fd56d55f3e64b5d2e-mediaItemUserData.bin")
+    doc = parse_tsaf(data)
+    user_data = doc.entities[0]
+    assert isinstance(user_data, VerboseEntity)
+    fm = {f.name: f for f in user_data.fields}
+
+    start_cue = fm["automixStartPoint"].value
+    assert isinstance(start_cue, CompactEntity)
+    cue_fm = {f.name: f.value for f in start_cue.fields}
+    # time field is absent (not emitted) in luvmaschine compact entities
+    assert "time" not in cue_fm, "luvmaschine compact ADCCuePoint must NOT have 'time' field"
+    assert "endTime" in cue_fm, "luvmaschine compact ADCCuePoint must have 'endTime' field"
+    assert cue_fm["endTime"] == pytest.approx(54.735, abs=0.01)
+
+
 # ---------------------------------------------------------------------------
 # parse_local_media_item_location
 # ---------------------------------------------------------------------------
