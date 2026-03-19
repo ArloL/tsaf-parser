@@ -228,12 +228,13 @@ Compact entities reference their verbose schema by field index:
 
 The schema field order is fixed by the order in which field names appear in
 the first verbose occurrence (or schema-only declaration) of each entity type.
-This ordering can differ between files for the same entity type — for example,
-`ADCCuePoint` in guiboratto declares `(time, number)` but in luvmaschine
-declares `(time, endTime, number)`. The guiboratto schema does not include
-`endTime` — compact entities in that file reference field `0x12` (index 2)
-which is out of the declared schema range and receives no name. This shifts
-all field IDs beyond the first field.
+This ordering can differ between files for the same entity type. For example,
+`ADCMediaItemUserData` schema field order differs between guiboratto and
+luvmaschine (guiboratto puts `automixStartPoint` at index 1; luvmaschine at
+index 2), so the same field maps to different compact field IDs in each file.
+`ADCCuePoint` happens to declare the same `(time, endTime, number)` schema in
+both files, but the two files populate different fields in compact entities
+(guiboratto uses `time`; luvmaschine uses `endTime`).
 
 #### Apple ID extraction
 
@@ -254,7 +255,7 @@ uint64.
 | `ADCMediaItemTitleID` | all files (nested or top-level) | `uuid` (str), `title` (str), `artist` (str, may be absent for tracks without artist metadata e.g. YouTube imports), `duration` (float32, seconds) |
 | `ADCMediaItemAnalyzedData` | mediaItemAnalyzedData | `uuid` (str), `titleIDs` (collection → `ADCMediaItemTitleID`), `bpm` (float32), `keySignatureIndex` (uint8 `0x0F` or compact integer `0x2D`/`0x2E`), `isStraightGrid` (boolean, not always present) |
 | `ADCMediaItemUserData` | mediaItemUserData | schema block declares field names (varies per file); `titleIDs` (anonymous collection → `ADCMediaItemTitleID`); `automixStartPoint`, `automixEndPoint`, `endPoint` (float32, only when cues present); `playCount`, `colorIndex`, `audioAlignmentFingerprint`, `userChangedCloudKeys`; inline children: `ADCCuePoint`, `ADCAudioAlignmentFingerprint` |
-| `ADCCuePoint` | mediaItemUserData (inline child of `ADCMediaItemUserData`) | cross-ref encodes `xref−2 = parent schema index` identifying which `ADCMediaItemUserData` field this entity provides; `time` (float32, seconds), `endTime` (float32, -1.0 = absent; declared in luvmaschine schema only), `number` (compact integer 0 via `0x2E` in guiboratto at field `0x11`; float32 = -1.0 in luvmaschine at field `0x12` — the named `number` field at schema index 2; the unnamed extra fields beyond the schema are `0x13` and `0x14`); field order and schema vary per file |
+| `ADCCuePoint` | mediaItemUserData (inline child of `ADCMediaItemUserData`) | cross-ref encodes `xref−2 = parent schema index` identifying which `ADCMediaItemUserData` field this entity provides; schema `(time, endTime, number)` is identical in both guiboratto and luvmaschine; `time` (float32, seconds), `endTime` (float32, -1.0 = absent sentinel), `number` (compact integer 0 via `0x2E` in guiboratto at field `0x12`; float32 = -1.0 in luvmaschine at field `0x12`); field `0x13` (index 3) is unnamed in both files; luvmaschine compact entities also emit `0x14` (unnamed) |
 | `ADCAudioAlignmentFingerprint` | mediaItemUserData (inline child of `ADCMediaItemUserData`) | anonymous raw data block (0x15, zlib-compressed) |
 
 All entity types carry a `uuid` field (hex string, 32 chars) that identifies
@@ -374,36 +375,40 @@ The three cue-related fields (`automixStartPoint`, `automixEndPoint`,
 that have automix set. Tracks without automix (happysong, just) have no
 `ADCCuePoint` entities and these fields are absent from the schema.
 
-The `ADCCuePoint` schema varies per file:
-- guiboratto: `(time, number)` — IDs `0x10`, `0x11`; field `0x12` (index 2) is out of schema range
-- luvmaschine: `(time, endTime, number)` — IDs `0x10`, `0x11`, `0x12`
+The `ADCCuePoint` schema is identical in both guiboratto and luvmaschine:
+`(time, endTime, number)` — IDs `0x10`, `0x11`, `0x12`; field `0x13` (index 3) is unnamed.
+The difference is which fields the compact entities populate:
+- guiboratto compact: populates `time` (field `0x10`) with the cue time; `endTime` (field `0x11`) = float32(−1.0) absent sentinel
+- luvmaschine compact: skips `time` (field `0x10`) entirely; populates `endTime` (field `0x11`) with the cue time
 
 #### ADCCuePoint compact encoding example — guiboratto
 
-Schema order: `(time, number)` → IDs `0x10`, `0x11`; index 2 (`0x12`) unnamed
+Schema order: `(time, endTime, number)` → IDs `0x10`, `0x11`, `0x12`; field `0x13` (index 3) unnamed
 
 Compact entity providing `automixStartPoint` (xref 3 → schema index 1):
 ```
-2B 05                    -- entity marker + compact form
-   10 13 [pad] [4B]      -- field 0x10 (time):    float32 = 17.475
-   05 11 2E              -- field 0x11 (number):   compact integer 0
-   05 12 00              -- field 0x12 (unnamed):  type 0x00 = 0 (absent)
-   05 03                 -- cross-ref id=3 (3-2=1 → automixStartPoint)
-                         -- terminates on 0x2B (next inline sibling)
+2B 05                       -- entity marker + compact form
+   10 13 [3 pad] [4B]       -- field 0x10 (time):    float32 = 17.475
+   05 11 13 [1 pad] [4B]    -- field 0x11 (endTime): float32 = -1.0 (absent sentinel)
+   05 12 2E                 -- field 0x12 (number):  compact integer 0
+   05 13 00                 -- field 0x13 (unnamed): type 0x00 = 0 (absent)
+   05 03                    -- cross-ref id=3 (3-2=1 → automixStartPoint)
+                            -- terminates on 0x2B (next inline sibling)
 ```
 
 #### ADCCuePoint compact encoding example — luvmaschine
 
-Schema order: `(time, endTime, number)` → IDs `0x10`, `0x11`, `0x12`; indices 3+ unnamed
+Schema order: `(time, endTime, number)` → IDs `0x10`, `0x11`, `0x12`; field `0x13` (index 3) unnamed
+(luvmaschine compact entities also emit an extra field `0x14` beyond the schema)
 
-Compact entity providing `automixStartPoint` (xref 8 → schema index 6):
+Compact entity providing `automixStartPoint` (xref 4 → schema index 2):
 ```
 2B 05                    -- entity marker + compact form
    11 13 [pad] [4B]      -- field 0x11 (endTime):  float32 = 54.735
    05 12 13 [pad] [4B]   -- field 0x12 (number):   float32 = -1.0
    05 13 2E              -- field 0x13 (unnamed):   compact integer 0
    05 14 00              -- field 0x14 (unnamed):   type 0x00 = 0
-   05 08                 -- cross-ref id=8 (8-2=6 → automixStartPoint)
+   05 04                 -- cross-ref id=4 (4-2=2 → automixStartPoint)
                          -- terminates on 0x2B (next inline sibling)
 ```
 
